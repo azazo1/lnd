@@ -140,7 +140,7 @@ cargo run --bin lnd-server -- --listen-addr 0.0.0.0:8765 --bearer-token dev-toke
 也可以从 `config.toml` 读取基础配置, 然后再用 CLI 或环境变量覆盖:
 
 ```bash
-cargo run --bin lnd-server -- --config examples/server-config.example.toml
+cargo run --bin lnd-server -- --config config.toml.example
 ```
 
 支持的环境变量:
