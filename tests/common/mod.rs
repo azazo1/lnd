@@ -84,7 +84,9 @@ pub fn sample_spec(node_id: &str, ttl_secs: u64) -> AnnounceSpec {
         auto_lan_addrs: false,
         address_selection: None,
         tags: vec!["alpha".to_string()],
-        metadata: [("role".to_string(), "api".to_string())].into_iter().collect(),
+        metadata: [("role".to_string(), "api".to_string())]
+            .into_iter()
+            .collect(),
         ttl_secs,
     }
 }

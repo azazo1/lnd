@@ -6,21 +6,28 @@ use std::time::Duration;
 
 use common::{TestServer, sample_spec};
 use lnd::ffi::{
-    lnd_announce_once, lnd_announce_spec_add_tag, lnd_announce_spec_insert_metadata,
-    lnd_announce_spec_new, lnd_announce_spec_set_auto_lan_addrs, lnd_announce_spec_set_include_loopback,
-    lnd_announce_spec_set_ttl_secs, lnd_announce_spec_free, lnd_announce_start_with_spec,
-    lnd_announce_stop, lnd_client_enable_interface, lnd_client_free, lnd_client_new_default,
-    lnd_client_set_bearer_token, lnd_client_set_include_loopback, lnd_client_set_server_url,
-    lnd_discover, lnd_discovery_filter_add_tag, lnd_discovery_filter_free, lnd_discovery_filter_new,
-    lnd_discovery_filter_set_service, lnd_last_error, lnd_string_free, lnd_watch_start_with_filter,
-    lnd_watch_stop,
+    lnd_announce_once, lnd_announce_spec_add_tag, lnd_announce_spec_free,
+    lnd_announce_spec_insert_metadata, lnd_announce_spec_new, lnd_announce_spec_set_auto_lan_addrs,
+    lnd_announce_spec_set_include_loopback, lnd_announce_spec_set_ttl_secs,
+    lnd_announce_start_with_spec, lnd_announce_stop, lnd_client_enable_interface, lnd_client_free,
+    lnd_client_new_default, lnd_client_set_bearer_token, lnd_client_set_include_loopback,
+    lnd_client_set_server_url, lnd_discover, lnd_discovery_filter_add_tag,
+    lnd_discovery_filter_free, lnd_discovery_filter_new, lnd_discovery_filter_set_service,
+    lnd_last_error, lnd_string_free, lnd_watch_start_with_filter, lnd_watch_stop,
 };
 
 static EVENTS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
 extern "C" fn watch_callback(payload: *const c_char, _user_data: *mut std::ffi::c_void) {
-    let payload = unsafe { CStr::from_ptr(payload) }.to_str().unwrap().to_string();
-    EVENTS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap().push(payload);
+    let payload = unsafe { CStr::from_ptr(payload) }
+        .to_str()
+        .unwrap()
+        .to_string();
+    EVENTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap()
+        .push(payload);
 }
 
 #[tokio::test]
@@ -49,8 +56,9 @@ async fn ffi_discover_and_watch_work() {
     assert!(unsafe { lnd_discovery_filter_set_service(filter, service.as_ptr()) });
     assert!(unsafe { lnd_discovery_filter_add_tag(filter, tag.as_ptr()) });
 
-    let watch =
-        unsafe { lnd_watch_start_with_filter(client, filter, Some(watch_callback), std::ptr::null_mut()) };
+    let watch = unsafe {
+        lnd_watch_start_with_filter(client, filter, Some(watch_callback), std::ptr::null_mut())
+    };
     assert!(!watch.is_null(), "ffi watch init failed");
 
     let announce = unsafe {
@@ -65,12 +73,20 @@ async fn ffi_discover_and_watch_work() {
     assert!(!announce.is_null(), "ffi announce spec init failed");
     assert!(unsafe { lnd_announce_spec_set_auto_lan_addrs(announce, true) });
     assert!(unsafe { lnd_announce_spec_set_include_loopback(announce, true) });
-    assert!(unsafe { lnd_announce_spec_set_ttl_secs(announce, sample_spec("node-ffi", 30).ttl_secs) });
+    assert!(unsafe {
+        lnd_announce_spec_set_ttl_secs(announce, sample_spec("node-ffi", 30).ttl_secs)
+    });
     assert!(unsafe { lnd_announce_spec_add_tag(announce, tag.as_ptr()) });
-    assert!(unsafe { lnd_announce_spec_insert_metadata(announce, meta_key.as_ptr(), meta_value.as_ptr()) });
+    assert!(unsafe {
+        lnd_announce_spec_insert_metadata(announce, meta_key.as_ptr(), meta_value.as_ptr())
+    });
 
     let once_ptr = unsafe { lnd_announce_once(client, announce) };
-    assert!(!once_ptr.is_null(), "ffi announce once failed: {}", last_error_string());
+    assert!(
+        !once_ptr.is_null(),
+        "ffi announce once failed: {}",
+        last_error_string()
+    );
     unsafe { lnd_string_free(once_ptr) };
 
     let announce_handle = unsafe { lnd_announce_start_with_spec(client, announce) };
@@ -79,11 +95,22 @@ async fn ffi_discover_and_watch_work() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let discovered_ptr = unsafe { lnd_discover(client, filter) };
-    assert!(!discovered_ptr.is_null(), "ffi discover failed: {}", last_error_string());
-    let discovered = unsafe { CStr::from_ptr(discovered_ptr) }.to_str().unwrap().to_string();
+    assert!(
+        !discovered_ptr.is_null(),
+        "ffi discover failed: {}",
+        last_error_string()
+    );
+    let discovered = unsafe { CStr::from_ptr(discovered_ptr) }
+        .to_str()
+        .unwrap()
+        .to_string();
     assert!(discovered.contains("node-ffi"));
 
-    let events = EVENTS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap().clone();
+    let events = EVENTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap()
+        .clone();
     assert!(!events.is_empty());
 
     unsafe {

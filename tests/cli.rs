@@ -9,7 +9,10 @@ async fn discover_json_outputs_structured_result() {
     let server = TestServer::spawn().await.unwrap();
     let client = server.client();
     client
-        .announce_once(common::sample_spec("node-cli", 30).into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]))
+        .announce_once(
+            common::sample_spec("node-cli", 30)
+                .into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]),
+        )
         .await
         .unwrap();
 
@@ -38,4 +41,3 @@ async fn discover_json_outputs_structured_result() {
     let parsed: Value = serde_json::from_slice(&output).unwrap();
     assert!(parsed.as_array().is_some());
 }
-

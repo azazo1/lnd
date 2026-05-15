@@ -305,8 +305,14 @@ impl AddressSelection {
 
     pub fn allows_interface(&self, interface_name: &str) -> bool {
         let allowed = self.interface_allowlist.is_empty()
-            || self.interface_allowlist.iter().any(|value| value == interface_name);
-        let denied = self.interface_denylist.iter().any(|value| value == interface_name);
+            || self
+                .interface_allowlist
+                .iter()
+                .any(|value| value == interface_name);
+        let denied = self
+            .interface_denylist
+            .iter()
+            .any(|value| value == interface_name);
         allowed && !denied
     }
 

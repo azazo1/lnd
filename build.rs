@@ -3,7 +3,9 @@ fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
 
     let crate_dir = std::env::var("CARGO_MANIFEST_DIR").expect("missing manifest dir");
-    let output = std::path::Path::new(&crate_dir).join("include").join("lnd.h");
+    let output = std::path::Path::new(&crate_dir)
+        .join("include")
+        .join("lnd.h");
     if let Some(parent) = output.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

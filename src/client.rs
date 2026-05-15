@@ -19,10 +19,11 @@ use uuid::Uuid;
 
 use crate::protocol::{
     AddressSelection, AnnounceSpec, ApiErrorBody, DEFAULT_TTL_SECS, DiscoverResponse,
-    DiscoveryEvent, DiscoveryEventEnvelope, DiscoveryFilter, DiscoveredNode, NodeAnnouncement,
+    DiscoveredNode, DiscoveryEvent, DiscoveryEventEnvelope, DiscoveryFilter, NodeAnnouncement,
 };
 
-pub type WatchStream = Pin<Box<dyn Stream<Item = Result<DiscoveryEventEnvelope, ClientError>> + Send>>;
+pub type WatchStream =
+    Pin<Box<dyn Stream<Item = Result<DiscoveryEventEnvelope, ClientError>> + Send>>;
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -99,14 +100,16 @@ impl LndClient {
 
     #[instrument(skip(self), fields(network_id = %filter.network_id))]
     pub async fn list(&self, filter: DiscoveryFilter) -> Result<Vec<DiscoveredNode>, ClientError> {
-        self.list_response(filter).await.map(|response| response.nodes)
+        self.list_response(filter)
+            .await
+            .map(|response| response.nodes)
     }
 
-    async fn list_response(&self, filter: DiscoveryFilter) -> Result<DiscoverResponse, ClientError> {
-        let response = self
-            .build_list_request(&filter)
-            .send()
-            .await?;
+    async fn list_response(
+        &self,
+        filter: DiscoveryFilter,
+    ) -> Result<DiscoverResponse, ClientError> {
+        let response = self.build_list_request(&filter).send().await?;
         parse_json_response::<DiscoverResponse>(response).await
     }
 
@@ -242,7 +245,10 @@ impl LndClient {
     }
 
     #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = %announcement.network_id))]
-    pub async fn announce_once(&self, announcement: NodeAnnouncement) -> Result<DiscoveredNode, ClientError> {
+    pub async fn announce_once(
+        &self,
+        announcement: NodeAnnouncement,
+    ) -> Result<DiscoveredNode, ClientError> {
         let response = self
             .http
             .put(format!(
@@ -260,7 +266,10 @@ impl LndClient {
         self.config.server_url.trim_end_matches('/').to_string()
     }
 
-    pub fn resolve_announce_addrs(&self, spec: &AnnounceSpec) -> Result<Vec<SocketAddr>, ClientError> {
+    pub fn resolve_announce_addrs(
+        &self,
+        spec: &AnnounceSpec,
+    ) -> Result<Vec<SocketAddr>, ClientError> {
         resolve_announce_addrs_with_defaults(spec, &self.config.default_address_selection)
     }
 
@@ -322,12 +331,18 @@ impl ClientBuilder {
     }
 
     pub fn enable_interface(mut self, interface_name: impl Into<String>) -> Self {
-        self.config.default_address_selection.interface_allowlist.push(interface_name.into());
+        self.config
+            .default_address_selection
+            .interface_allowlist
+            .push(interface_name.into());
         self
     }
 
     pub fn disable_interface(mut self, interface_name: impl Into<String>) -> Self {
-        self.config.default_address_selection.interface_denylist.push(interface_name.into());
+        self.config
+            .default_address_selection
+            .interface_denylist
+            .push(interface_name.into());
         self
     }
 
@@ -380,7 +395,9 @@ pub fn default_display_name() -> String {
         .unwrap_or_else(|| "lnd-node".to_string())
 }
 
-pub fn resolve_lan_addrs(explicit: Option<Vec<SocketAddr>>) -> Result<Vec<SocketAddr>, ClientError> {
+pub fn resolve_lan_addrs(
+    explicit: Option<Vec<SocketAddr>>,
+) -> Result<Vec<SocketAddr>, ClientError> {
     resolve_lan_addrs_with_port(explicit, 0)
 }
 
@@ -544,10 +561,13 @@ mod tests {
 
     #[test]
     fn resolve_explicit_addrs_dedupes() {
-        let addrs = resolve_lan_addrs_with_port(Some(vec![
-            "192.168.1.2:8080".parse().unwrap(),
-            "192.168.1.2:8080".parse().unwrap(),
-        ]), 8080)
+        let addrs = resolve_lan_addrs_with_port(
+            Some(vec![
+                "192.168.1.2:8080".parse().unwrap(),
+                "192.168.1.2:8080".parse().unwrap(),
+            ]),
+            8080,
+        )
         .unwrap();
         assert_eq!(addrs.len(), 1);
     }
@@ -573,7 +593,8 @@ mod tests {
         let spec = AnnounceSpec::new("net-a", "node-a", "svc", "node-a", 8080)
             .with_auto_lan_addrs(false)
             .with_lan_addrs(["127.0.0.1:8080".parse().unwrap()]);
-        let addrs = resolve_announce_addrs_with_defaults(&spec, &AddressSelection::default()).unwrap();
+        let addrs =
+            resolve_announce_addrs_with_defaults(&spec, &AddressSelection::default()).unwrap();
         assert_eq!(addrs, vec!["127.0.0.1:8080".parse().unwrap()]);
     }
 }

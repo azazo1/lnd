@@ -23,8 +23,8 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::protocol::{
     ApiErrorBody, DEFAULT_EVENT_BUFFER_CAPACITY, DEFAULT_SSE_KEEPALIVE_SECS, DEFAULT_TTL_SECS,
-    DiscoverResponse, DiscoveredNode, DiscoveryEvent, DiscoveryEventEnvelope, DiscoveryFilter, LeaseInfo,
-    NodeAnnouncement,
+    DiscoverResponse, DiscoveredNode, DiscoveryEvent, DiscoveryEventEnvelope, DiscoveryFilter,
+    LeaseInfo, NodeAnnouncement,
 };
 
 #[derive(Debug, Clone)]
@@ -71,8 +71,7 @@ impl ServerConfig {
         let contents = tokio::fs::read_to_string(path)
             .await
             .with_context(|| format!("failed to read {}", path.display()))?;
-        toml::from_str(&contents)
-            .with_context(|| format!("failed to parse {}", path.display()))
+        toml::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
     }
 }
 
@@ -145,7 +144,9 @@ impl IntoResponse for AppError {
         let (status, error) = match self {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string()),
             Self::BadRequest(error) => (StatusCode::BAD_REQUEST, error),
-            Self::Registry(RegistryError::InvalidTtl) => (StatusCode::BAD_REQUEST, "invalid ttl".to_string()),
+            Self::Registry(RegistryError::InvalidTtl) => {
+                (StatusCode::BAD_REQUEST, "invalid ttl".to_string())
+            }
             Self::Registry(RegistryError::CursorTooOld) => {
                 (StatusCode::CONFLICT, "cursor too old".to_string())
             }
@@ -188,7 +189,9 @@ impl InMemoryRegistry {
             revision,
         };
         let node = entry.to_discovered_node();
-        state.nodes.insert(entry.announcement.node_id.clone(), entry);
+        state
+            .nodes
+            .insert(entry.announcement.node_id.clone(), entry);
         self.push_event_locked(
             &mut state,
             DiscoveryEventEnvelope {
@@ -266,7 +269,11 @@ impl InMemoryRegistry {
         Ok(state
             .events
             .iter()
-            .filter(|event| event.cursor.is_some_and(|event_cursor| event_cursor > cursor))
+            .filter(|event| {
+                event
+                    .cursor
+                    .is_some_and(|event_cursor| event_cursor > cursor)
+            })
             .filter(|event| event_matches_filter(event, filter))
             .cloned()
             .collect())
@@ -397,7 +404,9 @@ async fn upsert_node(
 ) -> Result<Json<DiscoveredNode>, AppError> {
     authorize(&state.config, &headers)?;
     if body.node_id != node_id {
-        return Err(AppError::BadRequest("path node_id does not match body".to_string()));
+        return Err(AppError::BadRequest(
+            "path node_id does not match body".to_string(),
+        ));
     }
     if body.network_id.trim().is_empty()
         || body.node_id.trim().is_empty()
@@ -494,7 +503,10 @@ async fn watch_nodes(
     let headers = response.headers_mut();
     headers.insert("cache-control", HeaderValue::from_static("no-cache"));
     headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
-    headers.insert("content-type", HeaderValue::from_static("text/event-stream"));
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("text/event-stream"),
+    );
     Ok(response)
 }
 
@@ -565,7 +577,9 @@ fn filter_matches(filter: &DiscoveryFilter, announcement: &NodeAnnouncement) -> 
 
 fn event_matches_filter(event: &DiscoveryEventEnvelope, filter: &DiscoveryFilter) -> bool {
     match &event.event {
-        DiscoveryEvent::Snapshot { nodes } => nodes.iter().any(|node| discovered_matches(filter, node)),
+        DiscoveryEvent::Snapshot { nodes } => {
+            nodes.iter().any(|node| discovered_matches(filter, node))
+        }
         DiscoveryEvent::Upsert { node } => discovered_matches(filter, node),
         DiscoveryEvent::Remove { node } => discovered_matches(filter, node),
         DiscoveryEvent::Reset | DiscoveryEvent::Keepalive => true,
@@ -581,7 +595,10 @@ fn discovered_matches(filter: &DiscoveryFilter, node: &DiscoveredNode) -> bool {
     {
         return false;
     }
-    filter.tags.iter().all(|tag| node.tags.iter().any(|value| value == tag))
+    filter
+        .tags
+        .iter()
+        .all(|tag| node.tags.iter().any(|value| value == tag))
 }
 
 fn dedupe_announcement(mut announcement: NodeAnnouncement) -> NodeAnnouncement {
@@ -625,8 +642,12 @@ mod tests {
     #[test]
     fn list_filters_by_tags() {
         let registry = InMemoryRegistry::new(32);
-        registry.upsert(sample_announcement("node-1", &["alpha", "beta"], 30)).unwrap();
-        registry.upsert(sample_announcement("node-2", &["beta"], 30)).unwrap();
+        registry
+            .upsert(sample_announcement("node-1", &["alpha", "beta"], 30))
+            .unwrap();
+        registry
+            .upsert(sample_announcement("node-2", &["beta"], 30))
+            .unwrap();
 
         let snapshot = registry.list(&DiscoveryFilter {
             network_id: "net-a".to_string(),
@@ -641,7 +662,9 @@ mod tests {
     #[test]
     fn remove_expired_nodes_emits_remove_event() {
         let registry = InMemoryRegistry::new(32);
-        registry.upsert(sample_announcement("node-1", &[], 1)).unwrap();
+        registry
+            .upsert(sample_announcement("node-1", &[], 1))
+            .unwrap();
         std::thread::sleep(Duration::from_millis(1100));
         assert_eq!(registry.remove_expired(), 1);
 
@@ -655,16 +678,28 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(events.iter().any(|event| matches!(event.event, DiscoveryEvent::Remove { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event.event, DiscoveryEvent::Remove { .. }))
+        );
     }
 
     #[test]
     fn replay_since_rejects_old_cursor() {
         let registry = InMemoryRegistry::new(2);
-        registry.upsert(sample_announcement("node-1", &[], 30)).unwrap();
-        registry.upsert(sample_announcement("node-2", &[], 30)).unwrap();
-        registry.upsert(sample_announcement("node-3", &[], 30)).unwrap();
-        registry.upsert(sample_announcement("node-4", &[], 30)).unwrap();
+        registry
+            .upsert(sample_announcement("node-1", &[], 30))
+            .unwrap();
+        registry
+            .upsert(sample_announcement("node-2", &[], 30))
+            .unwrap();
+        registry
+            .upsert(sample_announcement("node-3", &[], 30))
+            .unwrap();
+        registry
+            .upsert(sample_announcement("node-4", &[], 30))
+            .unwrap();
 
         let result = registry.replay_since(
             1,
@@ -681,7 +716,11 @@ mod tests {
     fn dedupe_lan_addrs_and_tags() {
         let registry = InMemoryRegistry::new(32);
         let node = registry
-            .upsert(sample_announcement("node-1", &["beta", "alpha", "alpha"], 30))
+            .upsert(sample_announcement(
+                "node-1",
+                &["beta", "alpha", "alpha"],
+                30,
+            ))
             .unwrap();
         assert_eq!(node.lan_addrs.len(), 1);
         assert_eq!(node.tags, vec!["alpha".to_string(), "beta".to_string()]);

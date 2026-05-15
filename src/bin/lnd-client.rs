@@ -150,7 +150,9 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
         spec = spec.without_interface(interface_name);
     }
     let initial_addrs = client.resolve_announce_addrs(&spec)?;
-    let node = client.announce_once(spec.clone().into_announcement(initial_addrs)).await?;
+    let node = client
+        .announce_once(spec.clone().into_announcement(initial_addrs))
+        .await?;
     println!("{}", serde_json::to_string(&node)?);
 
     let handle = client.announce_loop(spec)?;

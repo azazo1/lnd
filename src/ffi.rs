@@ -10,8 +10,9 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 use crate::client::{
-    AnnounceHandle, ClientConfig, ClientError, LndClient, discover_nodes_to_json, parse_announce_json,
-    parse_filter_json, parse_socket_addrs, resolve_announce_addrs_with_defaults, watch_event_to_json,
+    AnnounceHandle, ClientConfig, ClientError, LndClient, discover_nodes_to_json,
+    parse_announce_json, parse_filter_json, parse_socket_addrs,
+    resolve_announce_addrs_with_defaults, watch_event_to_json,
 };
 use crate::protocol::{AddressSelection, AnnounceSpec, DiscoveryFilter};
 
@@ -84,7 +85,8 @@ fn runtime() -> Result<&'static SharedRuntime, ClientError> {
 }
 
 fn set_last_error(error: impl ToString) {
-    let text = CString::new(error.to_string()).unwrap_or_else(|_| CString::new("unknown error").unwrap());
+    let text =
+        CString::new(error.to_string()).unwrap_or_else(|_| CString::new("unknown error").unwrap());
     if let Ok(mut slot) = LAST_ERROR.lock() {
         *slot = Some(text);
     }
@@ -226,9 +228,11 @@ fn client_announce_start(
     spec: AnnounceSpec,
 ) -> Result<*mut LndAnnounceHandle, ClientError> {
     let announce_handle = block_on_ffi(async move { client.announce_loop(spec) })?;
-    Ok(into_handle::<LndAnnounceState, LndAnnounceHandle>(LndAnnounceState {
-        handle: Some(announce_handle),
-    }))
+    Ok(into_handle::<LndAnnounceState, LndAnnounceHandle>(
+        LndAnnounceState {
+            handle: Some(announce_handle),
+        },
+    ))
 }
 
 fn client_watch_start(
@@ -268,10 +272,12 @@ fn client_watch_start(
             }
         });
     });
-    Ok(into_handle::<LndWatchState, LndWatchHandle>(LndWatchState {
-        stop_tx: Some(stop_tx),
-        join_handle: Some(join_handle),
-    }))
+    Ok(into_handle::<LndWatchState, LndWatchHandle>(
+        LndWatchState {
+            stop_tx: Some(stop_tx),
+            join_handle: Some(join_handle),
+        },
+    ))
 }
 
 #[unsafe(no_mangle)]
@@ -346,7 +352,8 @@ pub unsafe extern "C" fn lnd_client_set_bearer_token(
 ) -> bool {
     bool_result(catch_ffi(|| {
         let state = cast_mut::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        state.config.bearer_token = read_optional_cstr(bearer_token, "bearer_token")?.unwrap_or_default();
+        state.config.bearer_token =
+            read_optional_cstr(bearer_token, "bearer_token")?.unwrap_or_default();
         rebuild_client(state)
     }))
 }
@@ -444,7 +451,10 @@ pub unsafe extern "C" fn lnd_client_set_include_link_local_ipv4(
 ) -> bool {
     bool_result(catch_ffi(|| {
         let state = cast_mut::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        state.config.default_address_selection.include_link_local_ipv4 = on;
+        state
+            .config
+            .default_address_selection
+            .include_link_local_ipv4 = on;
         rebuild_client(state)
     }))
 }
@@ -499,8 +509,16 @@ pub unsafe extern "C" fn lnd_client_disable_interface(
 pub unsafe extern "C" fn lnd_client_clear_interface_filters(handle: *mut LndClientHandle) -> bool {
     bool_result(catch_ffi(|| {
         let state = cast_mut::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        state.config.default_address_selection.interface_allowlist.clear();
-        state.config.default_address_selection.interface_denylist.clear();
+        state
+            .config
+            .default_address_selection
+            .interface_allowlist
+            .clear();
+        state
+            .config
+            .default_address_selection
+            .interface_denylist
+            .clear();
         rebuild_client(state)
     }))
 }
@@ -515,9 +533,10 @@ pub unsafe extern "C" fn lnd_discovery_filter_new(
 ) -> *mut LndDiscoveryFilterHandle {
     ptr_result(catch_ffi(|| {
         let filter = DiscoveryFilter::new(read_cstr(network_id, "network_id")?);
-        Ok(into_handle::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(
-            LndDiscoveryFilterState { filter },
-        ))
+        Ok(into_handle::<
+            LndDiscoveryFilterState,
+            LndDiscoveryFilterHandle,
+        >(LndDiscoveryFilterState { filter }))
     }))
 }
 
@@ -541,7 +560,8 @@ pub unsafe extern "C" fn lnd_discovery_filter_set_service(
     service: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
         state.filter.service = Some(read_cstr(service, "service")?);
         Ok(())
     }))
@@ -552,9 +572,12 @@ pub unsafe extern "C" fn lnd_discovery_filter_set_service(
 ///
 /// # Safety
 /// `handle` must be a live discovery filter handle.
-pub unsafe extern "C" fn lnd_discovery_filter_clear_service(handle: *mut LndDiscoveryFilterHandle) -> bool {
+pub unsafe extern "C" fn lnd_discovery_filter_clear_service(
+    handle: *mut LndDiscoveryFilterHandle,
+) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
         state.filter.service = None;
         Ok(())
     }))
@@ -571,7 +594,8 @@ pub unsafe extern "C" fn lnd_discovery_filter_add_tag(
     tag: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
         state.filter.tags.push(read_cstr(tag, "tag")?);
         Ok(())
     }))
@@ -582,9 +606,12 @@ pub unsafe extern "C" fn lnd_discovery_filter_add_tag(
 ///
 /// # Safety
 /// `handle` must be a live discovery filter handle.
-pub unsafe extern "C" fn lnd_discovery_filter_clear_tags(handle: *mut LndDiscoveryFilterHandle) -> bool {
+pub unsafe extern "C" fn lnd_discovery_filter_clear_tags(
+    handle: *mut LndDiscoveryFilterHandle,
+) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
         state.filter.tags.clear();
         Ok(())
     }))
@@ -603,7 +630,8 @@ pub unsafe extern "C" fn lnd_discover(
 ) -> *mut c_char {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let filter_state = cast_ref::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(filter, "filter handle")?;
+        let filter_state =
+            cast_ref::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(filter, "filter handle")?;
         client_discover_json(state.client.clone(), filter_state.filter.clone())
     }))
 }
@@ -672,7 +700,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_network_id(
     network_id: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.network_id = read_cstr(network_id, "network_id")?;
         Ok(())
     }))
@@ -689,7 +720,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_node_id(
     node_id: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.node_id = read_cstr(node_id, "node_id")?;
         Ok(())
     }))
@@ -706,7 +740,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_service(
     service: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.service = read_cstr(service, "service")?;
         Ok(())
     }))
@@ -723,7 +760,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_display_name(
     display_name: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.display_name = read_cstr(display_name, "display_name")?;
         Ok(())
     }))
@@ -739,7 +779,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_port(
     port: u16,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.port = port;
         Ok(())
     }))
@@ -755,7 +798,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_auto_lan_addrs(
     on: bool,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.auto_lan_addrs = on;
         Ok(())
     }))
@@ -772,10 +818,17 @@ pub unsafe extern "C" fn lnd_announce_spec_add_lan_addr(
     addr: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         let values = parse_socket_addrs(&[read_cstr(addr, "addr")?], state.spec.port)
             .map_err(|error| ClientError::Api(error.to_string()))?;
-        state.spec.lan_addrs.get_or_insert_with(Vec::new).extend(values);
+        state
+            .spec
+            .lan_addrs
+            .get_or_insert_with(Vec::new)
+            .extend(values);
         Ok(())
     }))
 }
@@ -785,9 +838,14 @@ pub unsafe extern "C" fn lnd_announce_spec_add_lan_addr(
 ///
 /// # Safety
 /// `handle` must be a live announce spec handle.
-pub unsafe extern "C" fn lnd_announce_spec_clear_lan_addrs(handle: *mut LndAnnounceSpecHandle) -> bool {
+pub unsafe extern "C" fn lnd_announce_spec_clear_lan_addrs(
+    handle: *mut LndAnnounceSpecHandle,
+) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.lan_addrs = None;
         Ok(())
     }))
@@ -803,7 +861,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_include_loopback(
     on: bool,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         ensure_spec_selection(&mut state.spec).include_loopback = on;
         Ok(())
     }))
@@ -819,7 +880,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_include_ipv6(
     on: bool,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         ensure_spec_selection(&mut state.spec).include_ipv6 = on;
         Ok(())
     }))
@@ -835,7 +899,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_include_private_ipv4(
     on: bool,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         ensure_spec_selection(&mut state.spec).include_private_ipv4 = on;
         Ok(())
     }))
@@ -851,7 +918,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_include_link_local_ipv4(
     on: bool,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         ensure_spec_selection(&mut state.spec).include_link_local_ipv4 = on;
         Ok(())
     }))
@@ -868,7 +938,10 @@ pub unsafe extern "C" fn lnd_announce_spec_enable_interface(
     interface_name: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         ensure_spec_selection(&mut state.spec)
             .interface_allowlist
             .push(read_cstr(interface_name, "interface_name")?);
@@ -887,7 +960,10 @@ pub unsafe extern "C" fn lnd_announce_spec_disable_interface(
     interface_name: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         ensure_spec_selection(&mut state.spec)
             .interface_denylist
             .push(read_cstr(interface_name, "interface_name")?);
@@ -904,7 +980,10 @@ pub unsafe extern "C" fn lnd_announce_spec_clear_interface_filters(
     handle: *mut LndAnnounceSpecHandle,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         let selection = ensure_spec_selection(&mut state.spec);
         selection.interface_allowlist.clear();
         selection.interface_denylist.clear();
@@ -923,7 +1002,10 @@ pub unsafe extern "C" fn lnd_announce_spec_add_tag(
     tag: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.tags.push(read_cstr(tag, "tag")?);
         Ok(())
     }))
@@ -936,7 +1018,10 @@ pub unsafe extern "C" fn lnd_announce_spec_add_tag(
 /// `handle` must be a live announce spec handle.
 pub unsafe extern "C" fn lnd_announce_spec_clear_tags(handle: *mut LndAnnounceSpecHandle) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.tags.clear();
         Ok(())
     }))
@@ -954,7 +1039,10 @@ pub unsafe extern "C" fn lnd_announce_spec_insert_metadata(
     value: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state
             .spec
             .metadata
@@ -968,9 +1056,14 @@ pub unsafe extern "C" fn lnd_announce_spec_insert_metadata(
 ///
 /// # Safety
 /// `handle` must be a live announce spec handle.
-pub unsafe extern "C" fn lnd_announce_spec_clear_metadata(handle: *mut LndAnnounceSpecHandle) -> bool {
+pub unsafe extern "C" fn lnd_announce_spec_clear_metadata(
+    handle: *mut LndAnnounceSpecHandle,
+) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.metadata.clear();
         Ok(())
     }))
@@ -986,7 +1079,10 @@ pub unsafe extern "C" fn lnd_announce_spec_set_ttl_secs(
     ttl_secs: u64,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(handle, "announce spec handle")?;
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
         state.spec.ttl_secs = ttl_secs;
         Ok(())
     }))
@@ -1005,9 +1101,12 @@ pub unsafe extern "C" fn lnd_resolve_announce_addrs_json(
 ) -> *mut c_char {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let spec_state = cast_ref::<LndAnnounceSpecState, LndAnnounceSpecHandle>(spec, "announce spec handle")?;
-        let addrs =
-            resolve_announce_addrs_with_defaults(&spec_state.spec, &state.config.default_address_selection)?;
+        let spec_state =
+            cast_ref::<LndAnnounceSpecState, LndAnnounceSpecHandle>(spec, "announce spec handle")?;
+        let addrs = resolve_announce_addrs_with_defaults(
+            &spec_state.spec,
+            &state.config.default_address_selection,
+        )?;
         let json = serde_json::to_string(&addrs)?;
         Ok(into_c_string(json))
     }))
@@ -1026,8 +1125,13 @@ pub unsafe extern "C" fn lnd_announce_once(
 ) -> *mut c_char {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let spec_state = cast_ref::<LndAnnounceSpecState, LndAnnounceSpecHandle>(spec, "announce spec handle")?;
-        client_announce_once_json(state.client.clone(), state.config.clone(), spec_state.spec.clone())
+        let spec_state =
+            cast_ref::<LndAnnounceSpecState, LndAnnounceSpecHandle>(spec, "announce spec handle")?;
+        client_announce_once_json(
+            state.client.clone(),
+            state.config.clone(),
+            spec_state.spec.clone(),
+        )
     }))
 }
 
@@ -1043,7 +1147,8 @@ pub unsafe extern "C" fn lnd_announce_start_with_spec(
 ) -> *mut LndAnnounceHandle {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let spec_state = cast_ref::<LndAnnounceSpecState, LndAnnounceSpecHandle>(spec, "announce spec handle")?;
+        let spec_state =
+            cast_ref::<LndAnnounceSpecState, LndAnnounceSpecHandle>(spec, "announce spec handle")?;
         client_announce_start(state.client.clone(), spec_state.spec.clone())
     }))
 }
@@ -1102,8 +1207,14 @@ pub unsafe extern "C" fn lnd_watch_start_with_filter(
 ) -> *mut LndWatchHandle {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let filter_state = cast_ref::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(filter, "filter handle")?;
-        client_watch_start(state.client.clone(), filter_state.filter.clone(), callback, user_data)
+        let filter_state =
+            cast_ref::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(filter, "filter handle")?;
+        client_watch_start(
+            state.client.clone(),
+            filter_state.filter.clone(),
+            callback,
+            user_data,
+        )
     }))
 }
 

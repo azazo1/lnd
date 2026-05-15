@@ -20,7 +20,9 @@ async fn announce_then_list_returns_node() {
     let client = server.client();
 
     client
-        .announce_once(sample_spec("node-1", 30).into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]))
+        .announce_once(
+            sample_spec("node-1", 30).into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]),
+        )
         .await
         .unwrap();
 
@@ -48,7 +50,10 @@ async fn expired_node_is_removed() {
     let client = server.client();
 
     client
-        .announce_once(sample_spec("node-expire", 1).into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]))
+        .announce_once(
+            sample_spec("node-expire", 1)
+                .into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]),
+        )
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -63,7 +68,10 @@ async fn watch_receives_snapshot_and_updates() {
     let client = server.client();
 
     client
-        .announce_once(sample_spec("node-snapshot", 30).into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]))
+        .announce_once(
+            sample_spec("node-snapshot", 30)
+                .into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]),
+        )
         .await
         .unwrap();
 
@@ -76,7 +84,10 @@ async fn watch_receives_snapshot_and_updates() {
     assert!(matches!(first.event, DiscoveryEvent::Snapshot { .. }));
 
     client
-        .announce_once(sample_spec("node-upsert", 30).into_announcement(vec!["192.168.1.11:8080".parse().unwrap()]))
+        .announce_once(
+            sample_spec("node-upsert", 30)
+                .into_announcement(vec!["192.168.1.11:8080".parse().unwrap()]),
+        )
         .await
         .unwrap();
 
