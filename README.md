@@ -112,6 +112,14 @@ flowchart LR
 cargo build --release
 ```
 
+如果本机安装了 [`just`](https://github.com/casey/just), 也可以直接使用仓库根目录的 [justfile](/Users/azazo1/pjs/rust/lnd/justfile) 快速执行常用命令, 例如:
+
+```bash
+just server
+just discover --service _demo._tcp --json
+just python-wheel
+```
+
 构建完成后通常可以得到:
 
 - `target/release/lnd-client`
