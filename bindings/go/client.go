@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -304,6 +306,15 @@ type Client struct {
 	address  AddressSelection
 }
 
+// DerivedNetworkID describes one locally derived discovery domain candidate.
+//
+// NetworkID is the stable identifier that can be sent to the server. Scope is
+// a human readable subnet prefix such as 192.168.1.0/24.
+type DerivedNetworkID struct {
+	NetworkID string
+	Scope     string
+}
+
 // NewClient creates a reusable Go SDK client.
 //
 // baseURL must point at an lnd server root, for example
@@ -340,6 +351,20 @@ func (c *Client) Discover(ctx context.Context, filter DiscoveryFilter) ([]Discov
 		return nil, err
 	}
 	return response.Nodes, nil
+}
+
+// ResolveNetworkID derives one local discovery domain identifier from the
+// client's current automatic address selection policy.
+//
+// When multiple equally valid local subnets are visible, the method returns an
+// error and the caller should pick an explicit network ID instead.
+func (c *Client) ResolveNetworkID() (string, error) {
+	return ResolveNetworkIDWithSelection(c.address)
+}
+
+// ListNetworkIDCandidates returns all locally derived discovery domain candidates.
+func (c *Client) ListNetworkIDCandidates() ([]DerivedNetworkID, error) {
+	return ListNetworkIDCandidates(c.address)
 }
 
 // AnnounceOnce resolves addresses and performs one registration request.
@@ -927,6 +952,104 @@ func ResolvePrivateIPv4Addrs(port uint16) ([]string, error) {
 	return ResolveLanAddrsWithSelection(port, DefaultAddressSelection())
 }
 
+// ListNetworkIDCandidates derives candidate discovery domains from local interfaces.
+//
+// IPv4 candidates are built from ip/netmask subnet prefixes. IPv6 candidates
+// are built from ip/prefix subnet prefixes when IPv6 is enabled by selection.
+func ListNetworkIDCandidates(selection AddressSelection) ([]DerivedNetworkID, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]DerivedNetworkID, 0)
+	seen := make(map[string]struct{})
+	for _, iface := range interfaces {
+		if !selection.allowsInterface(iface.Name) {
+			continue
+		}
+		values, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		isLoopback := (iface.Flags & net.FlagLoopback) != 0
+		for _, addr := range values {
+			switch value := addr.(type) {
+			case *net.IPNet:
+				ip := value.IP
+				if !selection.allowsIP(ip, isLoopback) {
+					continue
+				}
+				scope, ok := deriveScopeFromIPNet(value)
+				if !ok {
+					continue
+				}
+				key := scope
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				candidates = append(candidates, DerivedNetworkID{
+					NetworkID: "lan-" + shortStableHex(key),
+					Scope:     scope,
+				})
+			case *net.IPAddr:
+				if !selection.allowsIP(value.IP, isLoopback) {
+					continue
+				}
+			}
+		}
+	}
+	slices.SortFunc(candidates, func(left, right DerivedNetworkID) int {
+		if left.Scope < right.Scope {
+			return -1
+		}
+		if left.Scope > right.Scope {
+			return 1
+		}
+		if left.NetworkID < right.NetworkID {
+			return -1
+		}
+		if left.NetworkID > right.NetworkID {
+			return 1
+		}
+		return 0
+	})
+	return candidates, nil
+}
+
+// ResolveNetworkIDWithSelection derives one local discovery domain identifier.
+//
+// It prefers a single private IPv4 subnet when multiple candidates exist.
+func ResolveNetworkIDWithSelection(selection AddressSelection) (string, error) {
+	candidates, err := ListNetworkIDCandidates(selection)
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("failed to derive network_id: no eligible local network prefix found")
+	}
+	if len(candidates) == 1 {
+		return candidates[0].NetworkID, nil
+	}
+	ipv4Candidates := make([]DerivedNetworkID, 0)
+	for _, candidate := range candidates {
+		if strings.Contains(candidate.Scope, ".") {
+			ipv4Candidates = append(ipv4Candidates, candidate)
+		}
+	}
+	if len(ipv4Candidates) == 1 {
+		return ipv4Candidates[0].NetworkID, nil
+	}
+	parts := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		parts = append(parts, candidate.NetworkID+"("+candidate.Scope+")")
+	}
+	return "", fmt.Errorf(
+		"failed to derive network_id: multiple eligible network prefixes found: %s; specify network_id explicitly or narrow interfaces",
+		strings.Join(parts, ", "),
+	)
+}
+
 func dedupeStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -934,4 +1057,31 @@ func dedupeStrings(values []string) []string {
 	sorted := append([]string{}, values...)
 	slices.Sort(sorted)
 	return slices.Compact(sorted)
+}
+
+func deriveScopeFromIPNet(value *net.IPNet) (string, bool) {
+	if ipv4 := value.IP.To4(); ipv4 != nil {
+		mask := value.Mask
+		if len(mask) != net.IPv4len {
+			mask = mask[len(mask)-net.IPv4len:]
+		}
+		network := ipv4.Mask(mask)
+		ones, _ := value.Mask.Size()
+		return fmt.Sprintf("%s/%d", network.String(), ones), true
+	}
+	ipv6 := value.IP.To16()
+	if ipv6 == nil {
+		return "", false
+	}
+	network := ipv6.Mask(value.Mask)
+	ones, _ := value.Mask.Size()
+	return fmt.Sprintf("%s/%d", network.String(), ones), true
+}
+
+func shortStableHex(value string) string {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(value))
+	var buf [8]byte
+	sum := hasher.Sum(buf[:0])
+	return hex.EncodeToString(sum)
 }

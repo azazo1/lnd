@@ -11,8 +11,8 @@ use tokio::sync::oneshot;
 
 use crate::client::{
     AnnounceHandle, ClientConfig, ClientError, LndClient, discover_nodes_to_json,
-    parse_announce_json, parse_filter_json, parse_socket_addrs,
-    resolve_announce_addrs_with_defaults, watch_event_to_json,
+    list_network_id_candidates, parse_announce_json, parse_filter_json, parse_socket_addrs,
+    resolve_announce_addrs_with_defaults, resolve_network_id_with_selection, watch_event_to_json,
 };
 use crate::protocol::{AddressSelection, AnnounceSpec, DiscoveryFilter};
 
@@ -779,6 +779,53 @@ pub unsafe extern "C" fn lnd_discover_json(
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
         let filter = parse_filter_json(&read_cstr(filter_json, "filter_json")?)?;
         client_discover_json(state.client.clone(), filter)
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// Derive one local network_id from the client's default address selection.
+///
+/// This uses the same automatic selection policy as Rust and other SDKs. When
+/// multiple equally valid subnets are visible, the function returns `NULL` and
+/// sets `lnd_last_error()`.
+///
+/// Returns a newly allocated UTF-8 string on success. On failure returns `NULL`
+/// and stores a message in `lnd_last_error()`.
+///
+/// # Safety
+/// `handle` must be a live client handle.
+/// The returned pointer must be released with `lnd_string_free`.
+pub unsafe extern "C" fn lnd_resolve_network_id(
+    handle: *mut LndClientHandle,
+) -> *mut c_char {
+    ptr_result(catch_ffi(|| {
+        let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
+        let network_id = resolve_network_id_with_selection(&state.config.default_address_selection)?;
+        Ok(into_c_string(network_id))
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// List all locally derived network_id candidates as a JSON array.
+///
+/// Each JSON item contains `network_id` and `scope`. This is useful when a
+/// higher level binding wants to show candidate subnets to the caller before
+/// picking one explicitly.
+///
+/// Returns a newly allocated UTF-8 string on success. On failure returns `NULL`
+/// and stores a message in `lnd_last_error()`.
+///
+/// # Safety
+/// `handle` must be a live client handle.
+/// The returned pointer must be released with `lnd_string_free`.
+pub unsafe extern "C" fn lnd_list_network_id_candidates_json(
+    handle: *mut LndClientHandle,
+) -> *mut c_char {
+    ptr_result(catch_ffi(|| {
+        let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
+        let candidates = list_network_id_candidates(&state.config.default_address_selection)?;
+        let json = serde_json::to_string(&candidates)?;
+        Ok(into_c_string(json))
     }))
 }
 

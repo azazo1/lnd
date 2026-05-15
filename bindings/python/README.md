@@ -15,6 +15,21 @@
 
 `pyo3` 只出现在 `bindings/python/native` 这个附属 crate 中, 不污染主 crate.
 
+## 自动 `network_id`
+
+Python SDK 提供与 Rust 一致的自动发现域推导接口:
+
+- `client.resolve_network_id() -> str`
+- `client.list_network_id_candidates() -> list[dict]`
+
+当前策略基于本机局域网前缀指纹:
+
+- IPv4 取 `ip & netmask`
+- IPv6 取 `ip/prefixlen`
+- 最终生成稳定的 `lan-<hex>` 字符串
+
+如果本机同时暴露多个同优先级候选子网, `resolve_network_id()` 会抛出异常, 调用方应显式指定 `network_id` 或缩小接口范围.
+
 ## 构建 wheel
 
 ```bash
@@ -33,6 +48,19 @@ pip install target/wheels/lnd_sdk-0.1.0-*.whl
 安装 wheel 后, Python 代码直接调用内置的 `lnd._native`.
 
 调用方不需要额外准备 `liblnd.so`, `liblnd.dylib` 或 `lnd.dll`.
+
+## 最小示例
+
+```python
+from lnd import Client, DiscoveryFilter
+
+with Client("http://127.0.0.1:8765", "dev-token") as client:
+    network_id = client.resolve_network_id()
+    nodes = client.discover(
+        DiscoveryFilter(network_id).with_service("_demo._tcp").add_tag("stable")
+    )
+    print(nodes)
+```
 
 ## 许可证
 

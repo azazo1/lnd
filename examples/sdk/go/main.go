@@ -11,9 +11,13 @@ import (
 
 func main() {
 	client := lnd.NewClient("http://127.0.0.1:8765", "dev-token", lnd.WithTimeout(5*time.Second))
+	networkID, err := client.ResolveNetworkID()
+	if err != nil {
+		log.Fatal(err)
+	}
 	nodes, err := client.Discover(
 		context.Background(),
-		lnd.NewDiscoveryFilter("office-a").WithService("_demo._tcp").AddTag("stable"),
+		lnd.NewDiscoveryFilter(networkID).WithService("_demo._tcp").AddTag("stable"),
 	)
 	if err != nil {
 		log.Fatal(err)

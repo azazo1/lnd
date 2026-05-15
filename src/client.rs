@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::Duration;
@@ -11,6 +11,7 @@ use if_addrs::{IfAddr, get_if_addrs};
 use rand::Rng;
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 use reqwest::{Client as HttpClient, StatusCode};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -29,6 +30,17 @@ use crate::protocol::{
 /// - 该流内部已经处理了 SSE 重连, cursor 恢复和 `reset` 后快照补发.
 pub type WatchStream =
     Pin<Box<dyn Stream<Item = Result<DiscoveryEventEnvelope, ClientError>> + Send>>;
+
+/// 自动推导出的局域网发现域候选项.
+///
+/// 功能简介:
+/// - 表示从本机接口和地址选择规则推导出的一个候选 `network_id`.
+/// - 调用方可以直接使用 `network_id`, 也可以结合 `scope` 做展示或调试.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DerivedNetworkId {
+    pub network_id: String,
+    pub scope: String,
+}
 
 /// Rust client 配置.
 ///
@@ -405,6 +417,28 @@ impl LndClient {
         resolve_announce_addrs_with_defaults(spec, &self.config.default_address_selection)
     }
 
+    /// 使用 client 默认地址选择规则自动推导一个局域网 `network_id`.
+    ///
+    /// 返回值:
+    /// - 成功时返回一个稳定的 `network_id` 字符串.
+    ///
+    /// 异常:
+    /// - 当没有可用局域网地址, 或出现多个同优先级候选时返回 [`ClientError`].
+    pub fn resolve_network_id(&self) -> Result<String, ClientError> {
+        resolve_network_id_with_selection(&self.config.default_address_selection)
+    }
+
+    /// 列出当前地址选择规则下的全部局域网 `network_id` 候选项.
+    ///
+    /// 返回值:
+    /// - 去重并排序后的候选项列表.
+    ///
+    /// 异常:
+    /// - 当接口枚举失败时返回 [`ClientError::Io`].
+    pub fn list_network_id_candidates(&self) -> Result<Vec<DerivedNetworkId>, ClientError> {
+        list_network_id_candidates(&self.config.default_address_selection)
+    }
+
     fn build_list_request(&self, filter: &DiscoveryFilter) -> reqwest::RequestBuilder {
         let mut request = self
             .http
@@ -657,6 +691,135 @@ pub fn resolve_announce_addrs_with_defaults(
     Ok(dedupe_socket_addrs(addrs))
 }
 
+/// 使用给定地址选择规则列出本机局域网 `network_id` 候选项.
+///
+/// 生成规则:
+/// - IPv4 使用 `ip & netmask` 形成子网前缀.
+/// - IPv6 使用 `ip/prefixlen` 形成子网前缀, 仅在选择规则允许 IPv6 时考虑.
+/// - 最终 `network_id` 采用 `lan-<hex>` 形式, 便于跨语言复现和日志展示.
+pub fn list_network_id_candidates(
+    selection: &AddressSelection,
+) -> Result<Vec<DerivedNetworkId>, ClientError> {
+    let mut candidates = collect_network_id_candidates(
+        get_if_addrs()?.into_iter().map(|iface| {
+            let is_loopback = iface.is_loopback();
+            let interface_name = iface.name;
+            match iface.addr {
+                IfAddr::V4(v4) => CandidateInput {
+                    interface_name,
+                    ip: IpAddr::V4(v4.ip),
+                    is_loopback,
+                    ipv4_netmask: Some(v4.netmask),
+                    prefixlen: v4.prefixlen,
+                },
+                IfAddr::V6(v6) => CandidateInput {
+                    interface_name,
+                    ip: IpAddr::V6(v6.ip),
+                    is_loopback,
+                    ipv4_netmask: None,
+                    prefixlen: v6.prefixlen,
+                },
+            }
+        }),
+        selection,
+    );
+    candidates.sort_by(|left, right| {
+        left.scope
+            .cmp(&right.scope)
+            .then(left.network_id.cmp(&right.network_id))
+    });
+    candidates.dedup_by(|left, right| left.scope == right.scope && left.network_id == right.network_id);
+    Ok(candidates)
+}
+
+fn collect_network_id_candidates(
+    candidates: impl IntoIterator<Item = CandidateInput>,
+    selection: &AddressSelection,
+) -> Vec<DerivedNetworkId> {
+    let mut derived = Vec::new();
+    for candidate in candidates {
+        if !selection.allows_interface(&candidate.interface_name) {
+            continue;
+        }
+        if !selection.allows_ip(candidate.ip, candidate.is_loopback) {
+            continue;
+        }
+        match candidate.ip {
+            IpAddr::V4(ip) => {
+                let Some(netmask) = candidate.ipv4_netmask else {
+                    continue;
+                };
+                let network = Ipv4Addr::from(u32::from(ip) & u32::from(netmask));
+                let scope = format!("{network}/{}", candidate.prefixlen);
+                let key = format!("v4:{scope}");
+                derived.push(DerivedNetworkId {
+                    network_id: format!("lan-{}", short_stable_hex(&key)),
+                    scope,
+                });
+            }
+            IpAddr::V6(ip) => {
+                let network = ipv6_network_prefix(ip, candidate.prefixlen);
+                let scope = format!("{network}/{}", candidate.prefixlen);
+                let key = format!("v6:{scope}");
+                derived.push(DerivedNetworkId {
+                    network_id: format!("lan-{}", short_stable_hex(&key)),
+                    scope,
+                });
+            }
+        }
+    }
+    derived
+}
+
+#[derive(Debug, Clone)]
+struct CandidateInput {
+    interface_name: String,
+    ip: IpAddr,
+    is_loopback: bool,
+    ipv4_netmask: Option<Ipv4Addr>,
+    prefixlen: u8,
+}
+
+fn choose_network_id(candidates: &[DerivedNetworkId]) -> Result<String, ClientError> {
+    if candidates.is_empty() {
+        return Err(ClientError::Api(
+            "failed to derive network_id: no eligible local network prefix found".to_string(),
+        ));
+    }
+    if candidates.len() == 1 {
+        return Ok(candidates[0].network_id.clone());
+    }
+    let ipv4_candidates: Vec<&DerivedNetworkId> = candidates
+        .iter()
+        .filter(|candidate| candidate.scope.contains('.'))
+        .collect();
+    if ipv4_candidates.len() == 1 {
+        return Ok(ipv4_candidates[0].network_id.clone());
+    }
+    let visible = candidates
+        .iter()
+        .map(|candidate| format!("{}({})", candidate.network_id, candidate.scope))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(ClientError::Api(format!(
+        "failed to derive network_id: multiple eligible network prefixes found: {visible}; specify network_id explicitly or narrow interfaces"
+    )))
+}
+
+/// 使用给定地址选择规则自动推导一个最合适的局域网 `network_id`.
+///
+/// 选择规则:
+/// - 只有一个候选时直接返回.
+/// - 没有候选时返回错误.
+/// - 多个候选时, 优先选择私网 IPv4 候选.
+/// - 如果仍有多个同优先级候选, 返回错误并提示调用方显式配置.
+pub fn resolve_network_id_with_selection(
+    selection: &AddressSelection,
+) -> Result<String, ClientError> {
+    let candidates = list_network_id_candidates(selection)?;
+    choose_network_id(&candidates)
+}
+
 /// 将 `key=value` 形式的字符串切片解析为 metadata 映射.
 ///
 /// 参数:
@@ -682,6 +845,32 @@ fn dedupe_socket_addrs(mut addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
     addrs.sort();
     addrs.dedup();
     addrs
+}
+
+fn ipv6_network_prefix(ip: Ipv6Addr, prefixlen: u8) -> Ipv6Addr {
+    if prefixlen == 0 {
+        return Ipv6Addr::UNSPECIFIED;
+    }
+    let bits = u128::from(ip);
+    let host_bits = 128u32.saturating_sub(prefixlen as u32);
+    let mask = if host_bits >= 128 {
+        0
+    } else {
+        u128::MAX << host_bits
+    };
+    Ipv6Addr::from(bits & mask)
+}
+
+fn short_stable_hex(value: &str) -> String {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x00000100000001b3;
+
+    let mut hash = OFFSET_BASIS;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    format!("{hash:016x}")
 }
 
 async fn parse_json_response<T: serde::de::DeserializeOwned>(
@@ -820,5 +1009,96 @@ mod tests {
         let addrs =
             resolve_announce_addrs_with_defaults(&spec, &AddressSelection::default()).unwrap();
         assert_eq!(addrs, vec!["127.0.0.1:8080".parse().unwrap()]);
+    }
+
+    #[test]
+    fn ipv6_prefix_masks_host_bits() {
+        let ip: Ipv6Addr = "fd12:3456:789a:1::abcd".parse().unwrap();
+        let network = ipv6_network_prefix(ip, 64);
+        assert_eq!(network, "fd12:3456:789a:1::".parse::<Ipv6Addr>().unwrap());
+    }
+
+    #[test]
+    fn stable_hex_is_deterministic() {
+        assert_eq!(short_stable_hex("v4:192.168.1.0/24"), short_stable_hex("v4:192.168.1.0/24"));
+        assert_ne!(short_stable_hex("v4:192.168.1.0/24"), short_stable_hex("v4:192.168.2.0/24"));
+    }
+
+    #[test]
+    fn stable_hex_matches_fnv1a64() {
+        assert_eq!(short_stable_hex("v4:192.168.1.0/24"), "ec3a7b1765ff30c6");
+    }
+
+    #[test]
+    fn collect_candidates_dedupes_and_sorts() {
+        let selection = AddressSelection::new();
+        let candidates = collect_network_id_candidates(
+            [
+                CandidateInput {
+                    interface_name: "en1".to_string(),
+                    ip: "192.168.2.23".parse().unwrap(),
+                    is_loopback: false,
+                    ipv4_netmask: Some("255.255.255.0".parse().unwrap()),
+                    prefixlen: 24,
+                },
+                CandidateInput {
+                    interface_name: "en0".to_string(),
+                    ip: "192.168.1.9".parse().unwrap(),
+                    is_loopback: false,
+                    ipv4_netmask: Some("255.255.255.0".parse().unwrap()),
+                    prefixlen: 24,
+                },
+                CandidateInput {
+                    interface_name: "en0".to_string(),
+                    ip: "192.168.1.44".parse().unwrap(),
+                    is_loopback: false,
+                    ipv4_netmask: Some("255.255.255.0".parse().unwrap()),
+                    prefixlen: 24,
+                },
+            ],
+            &selection,
+        );
+        let mut candidates = candidates;
+        candidates.sort_by(|left, right| left.scope.cmp(&right.scope));
+        candidates.dedup_by(|left, right| left.scope == right.scope && left.network_id == right.network_id);
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].scope, "192.168.1.0/24");
+        assert_eq!(candidates[1].scope, "192.168.2.0/24");
+    }
+
+    #[test]
+    fn choose_network_id_prefers_single_ipv4_candidate() {
+        let network_id = choose_network_id(&[
+            DerivedNetworkId {
+                network_id: "lan-v6a".to_string(),
+                scope: "fd12:3456:789a:1::/64".to_string(),
+            },
+            DerivedNetworkId {
+                network_id: "lan-v4".to_string(),
+                scope: "192.168.1.0/24".to_string(),
+            },
+            DerivedNetworkId {
+                network_id: "lan-v6b".to_string(),
+                scope: "fd12:3456:789a:2::/64".to_string(),
+            },
+        ])
+        .unwrap();
+        assert_eq!(network_id, "lan-v4");
+    }
+
+    #[test]
+    fn choose_network_id_errors_when_ambiguous() {
+        let error = choose_network_id(&[
+            DerivedNetworkId {
+                network_id: "lan-a".to_string(),
+                scope: "192.168.1.0/24".to_string(),
+            },
+            DerivedNetworkId {
+                network_id: "lan-b".to_string(),
+                scope: "10.0.0.0/24".to_string(),
+            },
+        ])
+        .unwrap_err();
+        assert!(error.to_string().contains("multiple eligible network prefixes found"));
     }
 }

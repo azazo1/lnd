@@ -389,6 +389,38 @@ char *lnd_discover(struct LndClientHandle *handle, const struct LndDiscoveryFilt
 char *lnd_discover_json(struct LndClientHandle *handle, const char *filter_json);
 
 /**
+ * Derive one local network_id from the client's default address selection.
+ *
+ * This uses the same automatic selection policy as Rust and other SDKs. When
+ * multiple equally valid subnets are visible, the function returns `NULL` and
+ * sets `lnd_last_error()`.
+ *
+ * Returns a newly allocated UTF-8 string on success. On failure returns `NULL`
+ * and stores a message in `lnd_last_error()`.
+ *
+ * # Safety
+ * `handle` must be a live client handle.
+ * The returned pointer must be released with `lnd_string_free`.
+ */
+char *lnd_resolve_network_id(struct LndClientHandle *handle);
+
+/**
+ * List all locally derived network_id candidates as a JSON array.
+ *
+ * Each JSON item contains `network_id` and `scope`. This is useful when a
+ * higher level binding wants to show candidate subnets to the caller before
+ * picking one explicitly.
+ *
+ * Returns a newly allocated UTF-8 string on success. On failure returns `NULL`
+ * and stores a message in `lnd_last_error()`.
+ *
+ * # Safety
+ * `handle` must be a live client handle.
+ * The returned pointer must be released with `lnd_string_free`.
+ */
+char *lnd_list_network_id_candidates_json(struct LndClientHandle *handle);
+
+/**
  * Create an announce spec handle.
  *
  * The returned spec starts with automatic LAN address discovery enabled and

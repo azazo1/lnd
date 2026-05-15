@@ -402,6 +402,47 @@ class Client:
         assert isinstance(result, list)
         return result
 
+    def resolve_network_id(self) -> str:
+        """自动推导一个局域网发现域标识.
+
+        返回值:
+        - 一个稳定的 `network_id` 字符串.
+
+        异常:
+        - 抛出 [`LndError`] 当没有可用局域网前缀, 或候选过多无法自动选定.
+        """
+
+        result = _call_native(
+            "resolve_network_id",
+            _native.resolve_network_id,
+            self._server_url,
+            self._bearer_token,
+            self._timeout_ms,
+            self._reconnect_backoff_ms,
+            self._address_defaults_json(),
+        )
+        assert isinstance(result, str)
+        return result
+
+    def list_network_id_candidates(self) -> list[dict]:
+        """列出当前默认地址选择规则下的全部 `network_id` 候选项.
+
+        返回值:
+        - 每项都包含 `network_id` 和 `scope`.
+        """
+
+        result = _call_native(
+            "list_network_id_candidates",
+            _native.list_network_id_candidates_json,
+            self._server_url,
+            self._bearer_token,
+            self._timeout_ms,
+            self._reconnect_backoff_ms,
+            self._address_defaults_json(),
+        )
+        assert isinstance(result, list)
+        return result
+
     def resolve_announce_addrs(self, spec: AnnounceSpec) -> list[str]:
         """解析最终上报地址列表.
 

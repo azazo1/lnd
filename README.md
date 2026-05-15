@@ -19,6 +19,7 @@ v1 协议为 REST + SSE:
 
 - 中心化租约注册表, 避免 mDNS 在复杂网络环境中的组播不稳定问题
 - 基于 `network_id + service + tags` 的发现过滤
+- `network_id` 既可显式指定, 也可按本机子网前缀自动推导
 - 客户端带抖动续租, 指数退避重连, SSE 断线重连和 cursor 恢复
 - 默认自动收集非 loopback 的私网 IPv4, 也支持 loopback, IPv6, 接口白名单和黑名单
 - Rust API 采用 builder 和 handle 风格, 便于嵌入其他项目
@@ -106,6 +107,34 @@ flowchart LR
   - `include_link_local_ipv4 = false`
   - `include_ipv6 = false`
 
+## `network_id` 的两种用法
+
+`network_id` 是逻辑发现域. v1 支持两种方式:
+
+- 显式指定: 由部署者直接传入, 最稳定, 最适合跨网段、容器、VPN、VLAN 或多网卡环境
+- 自动推导: client 根据本机符合 `AddressSelection` 规则的局域网前缀生成稳定指纹
+
+当前自动推导规则:
+
+- IPv4 使用 `ip & netmask` 得到子网前缀, 例如 `192.168.1.0/24`
+- IPv6 使用 `ip/prefixlen` 得到前缀, 例如 `fd12:3456:789a:1::/64`
+- 再把前缀编码成稳定的 `lan-<hex>` 形式, 例如 `lan-ec3a7b1765ff30c6`
+
+当前没有使用网关 MAC 作为默认标识策略. 原因是默认网关和邻居表的获取在不同平台上差异较大, 对容器和受限环境也不够稳定. 子网前缀指纹更容易在 Rust、Go、Python 和 C ABI 之间保持一致行为.
+
+自动推导的限制:
+
+- 多网卡时可能出现多个候选前缀, 此时会返回错误而不是猜测
+- 如果需要更可控的结果, 应显式设置 `network_id`, 或通过接口白名单缩小范围
+- 如果不同局域网恰好复用了同一子网前缀, 它们也会推导出同一个 `network_id`
+
+可以先列出候选:
+
+- Rust: `client.list_network_id_candidates()`
+- Python: `client.list_network_id_candidates()`
+- Go: `client.ListNetworkIDCandidates()`
+- C ABI: `lnd_list_network_id_candidates_json()`
+
 ## 构建
 
 ```bash
@@ -186,6 +215,19 @@ cargo run --bin lnd-client -- \
   --metadata role=api
 ```
 
+如果希望自动推导 `network_id`:
+
+```bash
+cargo run --bin lnd-client -- \
+  --server-url http://127.0.0.1:8765 \
+  --bearer-token dev-token \
+  announce \
+  --auto-network-id \
+  --service _demo._tcp \
+  --port 8080 \
+  --display-name devbox-a
+```
+
 常用参数:
 
 - `--server-url`: client 连接的 server base URL
@@ -228,6 +270,17 @@ cargo run --bin lnd-client -- \
   --tag stable
 ```
 
+或者使用自动推导:
+
+```bash
+cargo run --bin lnd-client -- \
+  --server-url http://127.0.0.1:8765 \
+  --bearer-token dev-token \
+  discover \
+  --auto-network-id \
+  --service _demo._tcp
+```
+
 结构化输出:
 
 ```bash
@@ -246,7 +299,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   watch \
-  --network-id office-a \
+  --auto-network-id \
   --service _demo._tcp \
   --json
 ```
@@ -285,8 +338,10 @@ async fn main() -> anyhow::Result<()> {
         .include_loopback(true)
         .build()?;
 
+    let network_id = client.resolve_network_id()?;
+
     let spec = AnnounceSpec::new(
-        "office-a",
+        network_id.clone(),
         "node-a",
         "_demo._tcp",
         "devbox-a",
@@ -299,7 +354,7 @@ async fn main() -> anyhow::Result<()> {
     let _announce = client.announce_loop(spec)?;
 
     let nodes = client
-        .list(DiscoveryFilter::new("office-a").with_service("_demo._tcp"))
+        .list(DiscoveryFilter::new(network_id).with_service("_demo._tcp"))
         .await?;
     println!("nodes = {}", nodes.len());
 
@@ -323,6 +378,7 @@ Rust 侧主要公开类型:
 - `DiscoveredNode`
 - `DiscoveryEvent`
 - `LeaseInfo`
+- `DerivedNetworkId`
 
 与 `mdns-sd` 风格相近的点:
 
@@ -355,6 +411,13 @@ Rust 侧主要公开类型:
 - `with_ipv6`
 - `with_interface`
 - `without_interface`
+
+自动 `network_id` 相关 API:
+
+- `client.resolve_network_id()`
+- `client.list_network_id_candidates()`
+- `resolve_network_id_with_selection(&selection)`
+- `list_network_id_candidates(&selection)`
 
 ### 作为嵌入式 server 使用
 
@@ -439,6 +502,8 @@ discover:
 - `lnd_discovery_filter_add_tag`
 - `lnd_discover`
 - `lnd_discover_json`
+- `lnd_resolve_network_id`
+- `lnd_list_network_id_candidates_json`
 
 announce:
 
@@ -568,8 +633,9 @@ pip install target/wheels/lnd_sdk-0.1.0-*.whl
 from lnd import Client, DiscoveryFilter
 
 with Client("http://127.0.0.1:8765", "dev-token") as client:
+    network_id = client.resolve_network_id()
     nodes = client.discover(
-        DiscoveryFilter("office-a").with_service("_demo._tcp").add_tag("stable")
+        DiscoveryFilter(network_id).with_service("_demo._tcp").add_tag("stable")
     )
     print(nodes)
 ```
@@ -597,9 +663,13 @@ go get github.com/azazo1/lnd/bindings/go
 
 ```go
 client := lnd.NewClient("http://127.0.0.1:8765", "dev-token")
+networkID, err := client.ResolveNetworkID()
+if err != nil {
+    log.Fatal(err)
+}
 nodes, err := client.Discover(
     context.Background(),
-    lnd.NewDiscoveryFilter("office-a").WithService("_demo._tcp").AddTag("stable"),
+    lnd.NewDiscoveryFilter(networkID).WithService("_demo._tcp").AddTag("stable"),
 )
 ```
 
@@ -636,6 +706,7 @@ Bindings:
 - v1 只做单 server, 不做高可用和集群复制
 - server 状态驻留内存, 重启后依赖 client 自动重新注册
 - `network_id` 只是逻辑发现域, 不代表网络可达性边界
+- 自动 `network_id` 当前基于本机子网前缀指纹, 不基于网关 MAC
 - v1 先只建模单端口和一组 LAN 地址, 不做多端点协议图
 - C ABI 追求稳定和可包一层, 不直接暴露 Rust 内部泛型和异步类型
 

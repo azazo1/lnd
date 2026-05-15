@@ -39,7 +39,9 @@ enum Command {
 #[derive(Debug, Args)]
 struct FilterArgs {
     #[arg(long)]
-    network_id: String,
+    network_id: Option<String>,
+    #[arg(long, default_value_t = false)]
+    auto_network_id: bool,
     #[arg(long)]
     service: Option<String>,
     #[arg(long = "tag")]
@@ -51,7 +53,9 @@ struct FilterArgs {
 #[derive(Debug, Args)]
 struct AnnounceArgs {
     #[arg(long)]
-    network_id: String,
+    network_id: Option<String>,
+    #[arg(long, default_value_t = false)]
+    auto_network_id: bool,
     #[arg(long)]
     service: String,
     #[arg(long)]
@@ -108,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> {
+    let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
     let node_id = match args.node_id {
         Some(node_id) => node_id,
         None => {
@@ -123,7 +128,7 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
         Some(parse_socket_addrs(&args.lan_addrs, args.port)?)
     };
     let spec = AnnounceSpec {
-        network_id: args.network_id,
+        network_id,
         node_id,
         service: args.service,
         display_name: args.display_name,
@@ -162,8 +167,9 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
 }
 
 async fn discover(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
+    let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
     let filter = DiscoveryFilter {
-        network_id: args.network_id,
+        network_id,
         service: args.service,
         tags: args.tags,
     };
@@ -189,8 +195,9 @@ async fn discover(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
 }
 
 async fn watch(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
+    let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
     let filter = DiscoveryFilter {
-        network_id: args.network_id,
+        network_id,
         service: args.service,
         tags: args.tags,
     };
@@ -204,4 +211,21 @@ async fn watch(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn resolve_network_id_arg(
+    client: &LndClient,
+    network_id: Option<String>,
+    auto_network_id: bool,
+) -> anyhow::Result<String> {
+    match (network_id, auto_network_id) {
+        (Some(network_id), false) => Ok(network_id),
+        (Some(network_id), true) => Ok(network_id),
+        (None, true) => client
+            .resolve_network_id()
+            .map_err(|error| anyhow::anyhow!(error.to_string())),
+        (None, false) => Err(anyhow::anyhow!(
+            "missing network_id: pass --network-id or enable --auto-network-id"
+        )),
+    }
 }

@@ -22,6 +22,33 @@ SDK 公开对象:
 - `AnnounceHandle`
 - `WatchHandle`
 
+自动 `network_id` 相关接口:
+
+- `client.ResolveNetworkID()`
+- `client.ListNetworkIDCandidates()`
+- `ResolveNetworkIDWithSelection(selection)`
+- `ListNetworkIDCandidates(selection)`
+
+当前自动推导策略与 Rust 保持一致, 基于本机子网前缀指纹, 不依赖网关 MAC 或 cgo.
+
+最小示例:
+
+```go
+client := lnd.NewClient("http://127.0.0.1:8765", "dev-token")
+networkID, err := client.ResolveNetworkID()
+if err != nil {
+	return err
+}
+nodes, err := client.Discover(
+	context.Background(),
+	lnd.NewDiscoveryFilter(networkID).WithService("_demo._tcp").AddTag("stable"),
+)
+if err != nil {
+	return err
+}
+_ = nodes
+```
+
 它的 discover, announce, watch 语义与 Rust SDK 对齐, 包括:
 
 - client 侧自动 LAN 地址解析
