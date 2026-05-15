@@ -1,0 +1,25 @@
+language = "C"
+pragma_once = true
+include_version = true
+documentation = true
+cpp_compat = true
+
+[parse]
+parse_deps = false
+
+[export]
+include = [
+  "LndClientHandle",
+  "LndAnnounceHandle",
+  "LndWatchHandle",
+  "LndWatchCallback",
+  "lnd_client_new",
+  "lnd_client_free",
+  "lnd_discover_json",
+  "lnd_announce_start",
+  "lnd_announce_stop",
+  "lnd_watch_start",
+  "lnd_watch_stop",
+  "lnd_string_free",
+  "lnd_last_error",
+]
