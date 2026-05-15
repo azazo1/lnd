@@ -33,3 +33,7 @@ pip install target/wheels/lnd_sdk-0.1.0-*.whl
 安装 wheel 后, Python 代码直接调用内置的 `lnd._native`.
 
 调用方不需要额外准备 `liblnd.so`, `liblnd.dylib` 或 `lnd.dll`.
+
+## 许可证
+
+Python SDK 跟随仓库根目录的 [MIT License](/Users/azazo1/pjs/rust/lnd/LICENSE).

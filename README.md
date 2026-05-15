@@ -662,4 +662,4 @@ cargo clippy --all-targets --all-features
 
 ## 许可证
 
-MIT
+本项目使用 [MIT License](/Users/azazo1/pjs/rust/lnd/LICENSE).
