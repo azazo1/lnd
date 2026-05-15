@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::Path as FsPath;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -42,6 +43,36 @@ impl Default for ServerConfig {
             sse_keepalive_secs: DEFAULT_SSE_KEEPALIVE_SECS,
             event_buffer_capacity: DEFAULT_EVENT_BUFFER_CAPACITY,
         }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ServerConfigFile {
+    pub listen_addr: Option<SocketAddr>,
+    pub bearer_token: Option<String>,
+    pub sse_keepalive_secs: Option<u64>,
+    pub event_buffer_capacity: Option<usize>,
+}
+
+impl ServerConfig {
+    pub fn merge(self, file: ServerConfigFile) -> Self {
+        Self {
+            listen_addr: file.listen_addr.unwrap_or(self.listen_addr),
+            bearer_token: file.bearer_token.unwrap_or(self.bearer_token),
+            sse_keepalive_secs: file.sse_keepalive_secs.unwrap_or(self.sse_keepalive_secs),
+            event_buffer_capacity: file
+                .event_buffer_capacity
+                .unwrap_or(self.event_buffer_capacity),
+        }
+    }
+
+    pub async fn from_toml_file(path: impl AsRef<FsPath>) -> anyhow::Result<ServerConfigFile> {
+        let path = path.as_ref();
+        let contents = tokio::fs::read_to_string(path)
+            .await
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        toml::from_str(&contents)
+            .with_context(|| format!("failed to parse {}", path.display()))
     }
 }
 
