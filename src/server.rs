@@ -239,7 +239,7 @@ impl InMemoryRegistry {
     /// 注意事项:
     /// - 本方法会去重地址和 tag.
     /// - 成功后会向 replay 缓冲区和 broadcast 通道写入 `upsert` 事件.
-    #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = %announcement.network_id))]
+    #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = ?announcement.network_id))]
     pub fn upsert(&self, announcement: NodeAnnouncement) -> Result<DiscoveredNode, RegistryError> {
         if announcement.ttl_secs == 0 {
             return Err(RegistryError::InvalidTtl);
@@ -398,6 +398,7 @@ impl NodeEntry {
             display_name: self.announcement.display_name.clone(),
             port: self.announcement.port,
             lan_addrs: self.announcement.lan_addrs.clone(),
+            reachability_scopes: self.announcement.reachability_scopes.clone(),
             tags: self.announcement.tags.clone(),
             metadata: self.announcement.metadata.clone(),
             lease: LeaseInfo {
@@ -527,12 +528,16 @@ async fn upsert_node(
             "path node_id does not match body".to_string(),
         ));
     }
-    if body.network_id.trim().is_empty()
-        || body.node_id.trim().is_empty()
+    if body.node_id.trim().is_empty()
         || body.service.trim().is_empty()
         || body.display_name.trim().is_empty()
     {
         return Err(AppError::BadRequest("missing required fields".to_string()));
+    }
+    if let Some(network_id) = &body.network_id
+        && network_id.trim().is_empty()
+    {
+        body.network_id = None;
     }
     if body.ttl_secs == 0 {
         body.ttl_secs = DEFAULT_TTL_SECS;
@@ -659,28 +664,32 @@ fn authorize(config: &ServerConfig, headers: &HeaderMap) -> Result<(), AppError>
 }
 
 fn parse_filter(raw_query: Option<&str>, query: &FilterQuery) -> Result<DiscoveryFilter, AppError> {
-    let network_id = query
-        .network_id
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| AppError::BadRequest("missing network_id".to_string()))?;
-    let tags = raw_query
-        .map(|query| {
-            url::form_urlencoded::parse(query.as_bytes())
-                .filter(|(key, _)| key == "tag")
-                .map(|(_, value)| value.into_owned())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let mut tags = Vec::new();
+    let mut scopes = Vec::new();
+    if let Some(query) = raw_query {
+        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+            if key == "tag" {
+                tags.push(value.into_owned());
+            } else if key == "scope" {
+                scopes.push(value.into_owned());
+            }
+        }
+    }
     Ok(DiscoveryFilter {
-        network_id,
+        network_id: query
+            .network_id
+            .clone()
+            .filter(|value| !value.trim().is_empty()),
         service: query.service.clone(),
         tags,
+        reachability_scopes: scopes,
     })
 }
 
 fn filter_matches(filter: &DiscoveryFilter, announcement: &NodeAnnouncement) -> bool {
-    if announcement.network_id != filter.network_id {
+    if let Some(network_id) = &filter.network_id
+        && announcement.network_id.as_ref() != Some(network_id)
+    {
         return false;
     }
     if let Some(service) = &filter.service
@@ -688,10 +697,18 @@ fn filter_matches(filter: &DiscoveryFilter, announcement: &NodeAnnouncement) -> 
     {
         return false;
     }
-    filter
+    if !filter
         .tags
         .iter()
         .all(|tag| announcement.tags.iter().any(|value| value == tag))
+    {
+        return false;
+    }
+    filter.reachability_scopes.is_empty()
+        || announcement
+            .reachability_scopes
+            .iter()
+            .any(|scope| filter.reachability_scopes.iter().any(|value| value == scope))
 }
 
 fn event_matches_filter(event: &DiscoveryEventEnvelope, filter: &DiscoveryFilter) -> bool {
@@ -706,7 +723,9 @@ fn event_matches_filter(event: &DiscoveryEventEnvelope, filter: &DiscoveryFilter
 }
 
 fn discovered_matches(filter: &DiscoveryFilter, node: &DiscoveredNode) -> bool {
-    if node.network_id != filter.network_id {
+    if let Some(network_id) = &filter.network_id
+        && node.network_id.as_ref() != Some(network_id)
+    {
         return false;
     }
     if let Some(service) = &filter.service
@@ -714,15 +733,25 @@ fn discovered_matches(filter: &DiscoveryFilter, node: &DiscoveredNode) -> bool {
     {
         return false;
     }
-    filter
+    if !filter
         .tags
         .iter()
         .all(|tag| node.tags.iter().any(|value| value == tag))
+    {
+        return false;
+    }
+    filter.reachability_scopes.is_empty()
+        || node
+            .reachability_scopes
+            .iter()
+            .any(|scope| filter.reachability_scopes.iter().any(|value| value == scope))
 }
 
 fn dedupe_announcement(mut announcement: NodeAnnouncement) -> NodeAnnouncement {
     announcement.lan_addrs.sort();
     announcement.lan_addrs.dedup();
+    announcement.reachability_scopes.sort();
+    announcement.reachability_scopes.dedup();
     announcement.tags.sort();
     announcement.tags.dedup();
     announcement
@@ -743,7 +772,7 @@ mod tests {
 
     fn sample_announcement(node_id: &str, tags: &[&str], ttl_secs: u64) -> NodeAnnouncement {
         NodeAnnouncement {
-            network_id: "net-a".to_string(),
+            network_id: Some("net-a".to_string()),
             node_id: node_id.to_string(),
             service: "svc".to_string(),
             display_name: "node".to_string(),
@@ -752,6 +781,7 @@ mod tests {
                 "192.168.1.10:8080".parse().unwrap(),
                 "192.168.1.10:8080".parse().unwrap(),
             ],
+            reachability_scopes: vec!["192.168.1.0/24".to_string()],
             tags: tags.iter().map(|value| (*value).to_string()).collect(),
             metadata: BTreeMap::new(),
             ttl_secs,
@@ -769,9 +799,10 @@ mod tests {
             .unwrap();
 
         let snapshot = registry.list(&DiscoveryFilter {
-            network_id: "net-a".to_string(),
+            network_id: Some("net-a".to_string()),
             service: Some("svc".to_string()),
             tags: vec!["alpha".to_string()],
+            reachability_scopes: vec![],
         });
 
         assert_eq!(snapshot.nodes.len(), 1);
@@ -791,9 +822,10 @@ mod tests {
             .replay_since(
                 0,
                 &DiscoveryFilter {
-                    network_id: "net-a".to_string(),
+                    network_id: Some("net-a".to_string()),
                     service: None,
                     tags: vec![],
+                    reachability_scopes: vec![],
                 },
             )
             .unwrap();
@@ -823,9 +855,10 @@ mod tests {
         let result = registry.replay_since(
             1,
             &DiscoveryFilter {
-                network_id: "net-a".to_string(),
+                network_id: Some("net-a".to_string()),
                 service: None,
                 tags: vec![],
+                reachability_scopes: vec![],
             },
         );
         assert!(result.is_err());
@@ -843,5 +876,27 @@ mod tests {
             .unwrap();
         assert_eq!(node.lan_addrs.len(), 1);
         assert_eq!(node.tags, vec!["alpha".to_string(), "beta".to_string()]);
+    }
+
+    #[test]
+    fn list_filters_by_scope_overlap() {
+        let registry = InMemoryRegistry::new(32);
+        let mut first = sample_announcement("node-1", &[], 30);
+        first.reachability_scopes = vec!["192.168.1.0/24".to_string()];
+        registry.upsert(first).unwrap();
+
+        let mut second = sample_announcement("node-2", &[], 30);
+        second.reachability_scopes = vec!["10.0.0.0/24".to_string()];
+        registry.upsert(second).unwrap();
+
+        let snapshot = registry.list(&DiscoveryFilter {
+            network_id: None,
+            service: None,
+            tags: vec![],
+            reachability_scopes: vec!["192.168.1.0/24".to_string()],
+        });
+
+        assert_eq!(snapshot.nodes.len(), 1);
+        assert_eq!(snapshot.nodes[0].node_id, "node-1");
     }
 }

@@ -42,6 +42,16 @@ pub struct DerivedNetworkId {
     pub scope: String,
 }
 
+/// 自动推导出的可达域候选项.
+///
+/// 功能简介:
+/// - 表示从本机接口和地址选择规则推导出的一个局域网前缀作用域.
+/// - 可直接用于发现过滤器或注册公告中的 `reachability_scopes`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReachabilityScope {
+    pub scope: String,
+}
+
 /// Rust client 配置.
 ///
 /// 使用场景:
@@ -178,7 +188,7 @@ impl LndClient {
     /// 注意事项:
     /// - 本方法只返回节点列表, 不返回 cursor.
     /// - 如果调用方需要后续从快照续接 watch, 应自行调用底层 `list_response` 风格逻辑或使用 `watch`.
-    #[instrument(skip(self), fields(network_id = %filter.network_id))]
+    #[instrument(skip(self), fields(network_id = ?filter.network_id))]
     pub async fn list(&self, filter: DiscoveryFilter) -> Result<Vec<DiscoveredNode>, ClientError> {
         self.list_response(filter)
             .await
@@ -212,7 +222,7 @@ impl LndClient {
     /// use lnd::{DiscoveryFilter, LndClient};
     ///
     /// # async fn demo(client: LndClient) {
-    /// let mut stream = client.watch(DiscoveryFilter::new("office-a"));
+    /// let mut stream = client.watch(DiscoveryFilter::new().with_network_id("office-a"));
     /// while let Some(event) = stream.next().await {
     ///     println!("{:?}", event);
     /// }
@@ -227,7 +237,10 @@ impl LndClient {
                 let mut request = client
                     .http
                     .get(format!("{}/v1/watch", client.base_url()))
-                    .query(&[("network_id", filter.network_id.as_str())]);
+                    ;
+                if let Some(network_id) = filter.network_id.as_deref() {
+                    request = request.query(&[("network_id", network_id)]);
+                }
                 if let Some(service) = filter.service.as_deref() {
                     request = request.query(&[("service", service)]);
                 }
@@ -239,6 +252,13 @@ impl LndClient {
                         .tags
                         .iter()
                         .map(|tag| ("tag", tag.as_str()))
+                        .collect::<Vec<_>>(),
+                );
+                request = request.query(
+                    &filter
+                        .reachability_scopes
+                        .iter()
+                        .map(|scope| ("scope", scope.as_str()))
                         .collect::<Vec<_>>(),
                 );
                 request = request.header(ACCEPT, "text/event-stream");
@@ -334,7 +354,9 @@ impl LndClient {
                         attempt,
                     )}) => {
                         let lan_addrs = client.resolve_announce_addrs(&spec)?;
-                        let announcement = spec.clone().into_announcement(lan_addrs);
+                        let reachability_scopes = client.resolve_reachability_scopes(&spec)?;
+                        let mut announcement = spec.clone().into_announcement(lan_addrs);
+                        announcement.reachability_scopes = reachability_scopes;
                         match client.announce_once(announcement).await {
                             Ok(_) => {
                                 debug!(node_id = %spec.node_id, "lease renewed");
@@ -378,7 +400,7 @@ impl LndClient {
     /// 注意事项:
     /// - 本方法不会自动解析地址.
     /// - 大多数业务代码应优先使用 [`LndClient::announce_loop`] 或先调用 [`LndClient::resolve_announce_addrs`].
-    #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = %announcement.network_id))]
+    #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = ?announcement.network_id))]
     pub async fn announce_once(
         &self,
         announcement: NodeAnnouncement,
@@ -417,6 +439,14 @@ impl LndClient {
         resolve_announce_addrs_with_defaults(spec, &self.config.default_address_selection)
     }
 
+    /// 根据 client 默认地址选择和 `spec` 覆写规则, 解析最终上报可达域.
+    pub fn resolve_reachability_scopes(
+        &self,
+        spec: &AnnounceSpec,
+    ) -> Result<Vec<String>, ClientError> {
+        resolve_reachability_scopes_with_defaults(spec, &self.config.default_address_selection)
+    }
+
     /// 使用 client 默认地址选择规则自动推导一个局域网 `network_id`.
     ///
     /// 返回值:
@@ -439,19 +469,31 @@ impl LndClient {
         list_network_id_candidates(&self.config.default_address_selection)
     }
 
+    /// 列出当前地址选择规则下的全部局域网可达域候选项.
+    pub fn list_reachability_scopes(&self) -> Result<Vec<ReachabilityScope>, ClientError> {
+        list_reachability_scopes(&self.config.default_address_selection)
+    }
+
     fn build_list_request(&self, filter: &DiscoveryFilter) -> reqwest::RequestBuilder {
-        let mut request = self
-            .http
-            .get(format!("{}/v1/nodes", self.base_url()))
-            .query(&[("network_id", filter.network_id.as_str())]);
+        let mut request = self.http.get(format!("{}/v1/nodes", self.base_url()));
+        if let Some(network_id) = filter.network_id.as_deref() {
+            request = request.query(&[("network_id", network_id)]);
+        }
         if let Some(service) = filter.service.as_deref() {
             request = request.query(&[("service", service)]);
         }
-        request.query(
+        request = request.query(
             &filter
                 .tags
                 .iter()
                 .map(|tag| ("tag", tag.as_str()))
+                .collect::<Vec<_>>(),
+        );
+        request.query(
+            &filter
+                .reachability_scopes
+                .iter()
+                .map(|scope| ("scope", scope.as_str()))
                 .collect::<Vec<_>>(),
         )
     }
@@ -691,6 +733,27 @@ pub fn resolve_announce_addrs_with_defaults(
     Ok(dedupe_socket_addrs(addrs))
 }
 
+/// 根据 `AnnounceSpec` 和默认地址选择规则解析最终上报可达域.
+pub fn resolve_reachability_scopes_with_defaults(
+    spec: &AnnounceSpec,
+    default_selection: &AddressSelection,
+) -> Result<Vec<String>, ClientError> {
+    let mut scopes = spec.reachability_scopes.clone().unwrap_or_default();
+    if spec.auto_reachability_scopes {
+        scopes.extend(
+            list_reachability_scopes(&merge_address_selection(
+                default_selection,
+                spec.address_selection.as_ref(),
+            ))?
+            .into_iter()
+            .map(|scope| scope.scope),
+        );
+    }
+    scopes.sort();
+    scopes.dedup();
+    Ok(scopes)
+}
+
 /// 使用给定地址选择规则列出本机局域网 `network_id` 候选项.
 ///
 /// 生成规则:
@@ -730,6 +793,43 @@ pub fn list_network_id_candidates(
     });
     candidates.dedup_by(|left, right| left.scope == right.scope && left.network_id == right.network_id);
     Ok(candidates)
+}
+
+/// 使用给定地址选择规则列出本机局域网可达域候选项.
+pub fn list_reachability_scopes(
+    selection: &AddressSelection,
+) -> Result<Vec<ReachabilityScope>, ClientError> {
+    let mut scopes = collect_network_id_candidates(
+        get_if_addrs()?.into_iter().map(|iface| {
+            let is_loopback = iface.is_loopback();
+            let interface_name = iface.name;
+            match iface.addr {
+                IfAddr::V4(v4) => CandidateInput {
+                    interface_name,
+                    ip: IpAddr::V4(v4.ip),
+                    is_loopback,
+                    ipv4_netmask: Some(v4.netmask),
+                    prefixlen: v4.prefixlen,
+                },
+                IfAddr::V6(v6) => CandidateInput {
+                    interface_name,
+                    ip: IpAddr::V6(v6.ip),
+                    is_loopback,
+                    ipv4_netmask: None,
+                    prefixlen: v6.prefixlen,
+                },
+            }
+        }),
+        selection,
+    )
+    .into_iter()
+    .map(|candidate| ReachabilityScope {
+        scope: candidate.scope,
+    })
+    .collect::<Vec<_>>();
+    scopes.sort_by(|left, right| left.scope.cmp(&right.scope));
+    scopes.dedup_by(|left, right| left.scope == right.scope);
+    Ok(scopes)
 }
 
 fn collect_network_id_candidates(
@@ -1003,7 +1103,8 @@ mod tests {
 
     #[test]
     fn announce_spec_can_disable_auto_addrs() {
-        let spec = AnnounceSpec::new("net-a", "node-a", "svc", "node-a", 8080)
+        let spec = AnnounceSpec::new("node-a", "svc", "node-a", 8080)
+            .with_network_id("net-a")
             .with_auto_lan_addrs(false)
             .with_lan_addrs(["127.0.0.1:8080".parse().unwrap()]);
         let addrs =
@@ -1100,5 +1201,15 @@ mod tests {
         ])
         .unwrap_err();
         assert!(error.to_string().contains("multiple eligible network prefixes found"));
+    }
+
+    #[test]
+    fn resolve_reachability_scopes_merges_explicit_and_auto() {
+        let spec = AnnounceSpec::new("node-a", "svc", "node-a", 8080)
+            .with_reachability_scopes(["10.0.0.0/24"])
+            .with_auto_reachability_scopes(false);
+        let scopes =
+            resolve_reachability_scopes_with_defaults(&spec, &AddressSelection::default()).unwrap();
+        assert_eq!(scopes, vec!["10.0.0.0/24".to_string()]);
     }
 }

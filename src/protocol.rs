@@ -29,12 +29,15 @@ pub const DEFAULT_EVENT_BUFFER_CAPACITY: usize = 4096;
 /// - `ttl_secs = 0` 会被 server 视为无效输入或重置为默认值, 调用方不应依赖该行为.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeAnnouncement {
-    pub network_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_id: Option<String>,
     pub node_id: String,
     pub service: String,
     pub display_name: String,
     pub port: u16,
     pub lan_addrs: Vec<SocketAddr>,
+    #[serde(default)]
+    pub reachability_scopes: Vec<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -53,12 +56,13 @@ pub struct NodeAnnouncement {
 /// - 增加了 [`LeaseInfo`] 字段, 用于表达 revision 和过期时间.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveredNode {
-    pub network_id: String,
+    pub network_id: Option<String>,
     pub node_id: String,
     pub service: String,
     pub display_name: String,
     pub port: u16,
     pub lan_addrs: Vec<SocketAddr>,
+    pub reachability_scopes: Vec<String>,
     pub tags: Vec<String>,
     pub metadata: BTreeMap<String, String>,
     pub lease: LeaseInfo,
@@ -83,41 +87,56 @@ pub struct LeaseInfo {
 ///
 /// 功能简介:
 /// - 用于一次性查询和持续 watch.
-/// - `network_id` 必填.
+/// - `network_id` 可选, 用于逻辑发现域隔离.
 /// - `service` 为可选单值过滤条件.
 /// - `tags` 为 "全部满足" 语义, 即返回节点必须包含所有给定 tag.
+/// - `reachability_scopes` 为 "至少有一个重叠" 语义.
 ///
 /// 使用示例:
 /// ```rust
 /// use lnd::DiscoveryFilter;
 ///
-/// let filter = DiscoveryFilter::new("office-a")
+/// let filter = DiscoveryFilter::new()
+///     .with_network_id("office-a")
 ///     .with_service("_demo._tcp")
 ///     .add_tag("stable");
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveryFilter {
-    pub network_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_id: Option<String>,
     #[serde(default)]
     pub service: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub reachability_scopes: Vec<String>,
 }
 
 impl DiscoveryFilter {
     /// 创建一个最小发现过滤器.
     ///
-    /// 参数:
-    /// - `network_id`: 逻辑发现域标识, 必填.
-    ///
     /// 返回值:
-    /// - 一个没有 `service` 和 `tags` 过滤条件的 [`DiscoveryFilter`].
-    pub fn new(network_id: impl Into<String>) -> Self {
+    /// - 一个没有 `network_id`, `service`, `tags` 和 `reachability_scopes` 过滤条件的 [`DiscoveryFilter`].
+    pub fn new() -> Self {
         Self {
-            network_id: network_id.into(),
+            network_id: None,
             service: None,
             tags: Vec::new(),
+            reachability_scopes: Vec::new(),
         }
+    }
+
+    /// 设置逻辑发现域过滤条件.
+    pub fn with_network_id(mut self, network_id: impl Into<String>) -> Self {
+        self.network_id = Some(network_id.into());
+        self
+    }
+
+    /// 清空逻辑发现域过滤条件.
+    pub fn without_network_id(mut self) -> Self {
+        self.network_id = None;
+        self
     }
 
     /// 设置服务名过滤条件.
@@ -154,6 +173,27 @@ impl DiscoveryFilter {
     pub fn add_tag(mut self, tag: impl Into<String>) -> Self {
         self.tags.push(tag.into());
         self
+    }
+
+    /// 用一组可达域替换当前 `reachability_scopes`.
+    pub fn with_reachability_scopes(
+        mut self,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.reachability_scopes = scopes.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// 追加一个可达域过滤条件.
+    pub fn add_reachability_scope(mut self, scope: impl Into<String>) -> Self {
+        self.reachability_scopes.push(scope.into());
+        self
+    }
+}
+
+impl Default for DiscoveryFilter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -230,14 +270,16 @@ pub struct ApiErrorBody {
 /// ```rust
 /// use lnd::AnnounceSpec;
 ///
-/// let spec = AnnounceSpec::new("office-a", "node-a", "_demo._tcp", "devbox-a", 8080)
+/// let spec = AnnounceSpec::new("node-a", "_demo._tcp", "devbox-a", 8080)
+///     .with_network_id("office-a")
 ///     .add_tag("stable")
 ///     .insert_metadata("version", "1.0.0")
 ///     .include_loopback(true);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AnnounceSpec {
-    pub network_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_id: Option<String>,
     pub node_id: String,
     pub service: String,
     pub display_name: String,
@@ -248,6 +290,10 @@ pub struct AnnounceSpec {
     pub auto_lan_addrs: bool,
     #[serde(default)]
     pub address_selection: Option<AddressSelection>,
+    #[serde(default)]
+    pub reachability_scopes: Option<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub auto_reachability_scopes: bool,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -260,7 +306,6 @@ impl AnnounceSpec {
     /// 创建一个最小可用的注册规格.
     ///
     /// 参数:
-    /// - `network_id`: 发现域标识.
     /// - `node_id`: 节点持久标识.
     /// - `service`: 服务名, 例如 `_demo._tcp`.
     /// - `display_name`: 面向人类展示的名称.
@@ -269,14 +314,13 @@ impl AnnounceSpec {
     /// 返回值:
     /// - 默认启用 `auto_lan_addrs`, 默认 TTL 为 [`DEFAULT_TTL_SECS`] 的 [`AnnounceSpec`].
     pub fn new(
-        network_id: impl Into<String>,
         node_id: impl Into<String>,
         service: impl Into<String>,
         display_name: impl Into<String>,
         port: u16,
     ) -> Self {
         Self {
-            network_id: network_id.into(),
+            network_id: None,
             node_id: node_id.into(),
             service: service.into(),
             display_name: display_name.into(),
@@ -284,6 +328,8 @@ impl AnnounceSpec {
             lan_addrs: None,
             auto_lan_addrs: true,
             address_selection: None,
+            reachability_scopes: None,
+            auto_reachability_scopes: true,
             tags: Vec::new(),
             metadata: BTreeMap::new(),
             ttl_secs: default_ttl_secs(),
@@ -309,10 +355,23 @@ impl AnnounceSpec {
             display_name: self.display_name,
             port: self.port,
             lan_addrs,
+            reachability_scopes: self.reachability_scopes.unwrap_or_default(),
             tags: self.tags,
             metadata: self.metadata,
             ttl_secs: self.ttl_secs,
         }
+    }
+
+    /// 设置逻辑发现域标识.
+    pub fn with_network_id(mut self, network_id: impl Into<String>) -> Self {
+        self.network_id = Some(network_id.into());
+        self
+    }
+
+    /// 清空逻辑发现域标识.
+    pub fn without_network_id(mut self) -> Self {
+        self.network_id = None;
+        self
     }
 
     /// 用一组显式地址替换当前 `lan_addrs`.
@@ -339,6 +398,29 @@ impl AnnounceSpec {
     /// 覆盖地址选择策略.
     pub fn with_address_selection(mut self, address_selection: AddressSelection) -> Self {
         self.address_selection = Some(address_selection);
+        self
+    }
+
+    /// 用一组显式可达域替换当前 `reachability_scopes`.
+    pub fn with_reachability_scopes(
+        mut self,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.reachability_scopes = Some(scopes.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// 追加一个显式可达域.
+    pub fn add_reachability_scope(mut self, scope: impl Into<String>) -> Self {
+        self.reachability_scopes
+            .get_or_insert_with(Vec::new)
+            .push(scope.into());
+        self
+    }
+
+    /// 设置是否启用自动可达域收集.
+    pub fn with_auto_reachability_scopes(mut self, on: bool) -> Self {
+        self.auto_reachability_scopes = on;
         self
     }
 

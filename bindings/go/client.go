@@ -35,26 +35,32 @@ const (
 
 // DiscoveryFilter describes which peers should be listed or watched.
 //
-// NetworkID is required. Service and Tags narrow the result set to peers that
-// belong to the same logical discovery domain.
+// NetworkID is optional and acts as a logical discovery domain. Service and
+// Tags narrow the result set further. ReachabilityScopes require at least one
+// overlap with the remote node.
 //
 // Example:
 //
-//	filter := lnd.NewDiscoveryFilter("office-net").
+//	filter := lnd.NewDiscoveryFilter().
+//		WithNetworkID("office-net").
 //		WithService("_demo._tcp").
 //		AddTag("printer")
 type DiscoveryFilter struct {
-	NetworkID string
-	Service   string
-	Tags      []string
+	NetworkID          *string  `json:"network_id,omitempty"`
+	Service            string   `json:"service,omitempty"`
+	Tags               []string `json:"tags,omitempty"`
+	ReachabilityScopes []string `json:"reachability_scopes,omitempty"`
 }
 
 // NewDiscoveryFilter creates a minimal discovery filter.
-//
-// networkID identifies the logical discovery domain handled by the server.
-// The returned filter can be reused and extended with WithService and AddTag.
-func NewDiscoveryFilter(networkID string) DiscoveryFilter {
-	return DiscoveryFilter{NetworkID: networkID}
+func NewDiscoveryFilter() DiscoveryFilter {
+	return DiscoveryFilter{}
+}
+
+// WithNetworkID sets the logical discovery domain and returns the updated copy.
+func (f DiscoveryFilter) WithNetworkID(networkID string) DiscoveryFilter {
+	f.NetworkID = &networkID
+	return f
 }
 
 // WithService sets the required service name and returns the updated copy.
@@ -71,6 +77,12 @@ func (f DiscoveryFilter) AddTag(tag string) DiscoveryFilter {
 	return f
 }
 
+// AddReachabilityScope appends one scope overlap filter and returns the updated copy.
+func (f DiscoveryFilter) AddReachabilityScope(scope string) DiscoveryFilter {
+	f.ReachabilityScopes = append(f.ReachabilityScopes, scope)
+	return f
+}
+
 // AnnounceSpec describes one node registration payload.
 //
 // The spec can contain explicit LAN addresses, or it can ask the client to
@@ -78,17 +90,20 @@ func (f DiscoveryFilter) AddTag(tag string) DiscoveryFilter {
 //
 // Example:
 //
-//	spec := lnd.NewAnnounceSpec("office-net", "node-1", "_demo._tcp", "Demo Node", 8080).
+//	spec := lnd.NewAnnounceSpec("node-1", "_demo._tcp", "Demo Node", 8080).
+//		WithNetworkID("office-net").
 //		AddTag("blue").
 //		InsertMetadata("role", "api")
 type AnnounceSpec struct {
-	NetworkID            string            `json:"network_id"`
+	NetworkID            *string           `json:"network_id,omitempty"`
 	NodeID               string            `json:"node_id"`
 	Service              string            `json:"service"`
 	DisplayName          string            `json:"display_name"`
 	Port                 uint16            `json:"port"`
 	LanAddrs             []string          `json:"lan_addrs,omitempty"`
 	AutoLanAddrs         bool              `json:"auto_lan_addrs"`
+	ReachabilityScopes   []string          `json:"reachability_scopes,omitempty"`
+	AutoReachabilityScopes bool            `json:"auto_reachability_scopes"`
 	Tags                 []string          `json:"tags,omitempty"`
 	Metadata             map[string]string `json:"metadata,omitempty"`
 	TTLSeconds           uint64            `json:"ttl_secs"`
@@ -97,22 +112,28 @@ type AnnounceSpec struct {
 
 // NewAnnounceSpec creates an announce specification with sensible defaults.
 //
-// networkID selects the discovery domain, nodeID must remain stable across
-// restarts, service identifies the protocol family, displayName is a human
-// readable label, and port is the LAN service port advertised to peers.
+// nodeID must remain stable across restarts, service identifies the protocol
+// family, displayName is a human readable label, and port is the LAN service
+// port advertised to peers.
 //
 // The returned spec enables automatic LAN address discovery and uses
 // DefaultTTLSeconds unless overridden.
-func NewAnnounceSpec(networkID, nodeID, service, displayName string, port uint16) AnnounceSpec {
+func NewAnnounceSpec(nodeID, service, displayName string, port uint16) AnnounceSpec {
 	return AnnounceSpec{
-		NetworkID:    networkID,
-		NodeID:       nodeID,
-		Service:      service,
-		DisplayName:  displayName,
-		Port:         port,
-		AutoLanAddrs: true,
-		TTLSeconds:   DefaultTTLSeconds,
+		NodeID:                nodeID,
+		Service:               service,
+		DisplayName:           displayName,
+		Port:                  port,
+		AutoLanAddrs:          true,
+		AutoReachabilityScopes: true,
+		TTLSeconds:            DefaultTTLSeconds,
 	}
+}
+
+// WithNetworkID sets the logical discovery domain and returns the updated copy.
+func (s AnnounceSpec) WithNetworkID(networkID string) AnnounceSpec {
+	s.NetworkID = &networkID
+	return s
 }
 
 // AddLanAddr appends one explicit host:port address and returns the updated copy.
@@ -122,6 +143,12 @@ func NewAnnounceSpec(networkID, nodeID, service, displayName string, port uint16
 // the addresses provided here.
 func (s AnnounceSpec) AddLanAddr(addr string) AnnounceSpec {
 	s.LanAddrs = append(s.LanAddrs, addr)
+	return s
+}
+
+// AddReachabilityScope appends one explicit reachability scope.
+func (s AnnounceSpec) AddReachabilityScope(scope string) AnnounceSpec {
+	s.ReachabilityScopes = append(s.ReachabilityScopes, scope)
 	return s
 }
 
@@ -223,15 +250,16 @@ type LeaseInfo struct {
 
 // DiscoveredNode is the canonical peer record returned by list and watch calls.
 type DiscoveredNode struct {
-	NetworkID   string            `json:"network_id"`
-	NodeID      string            `json:"node_id"`
-	Service     string            `json:"service"`
-	DisplayName string            `json:"display_name"`
-	Port        uint16            `json:"port"`
-	LanAddrs    []string          `json:"lan_addrs"`
-	Tags        []string          `json:"tags"`
-	Metadata    map[string]string `json:"metadata"`
-	Lease       LeaseInfo         `json:"lease"`
+	NetworkID          *string           `json:"network_id"`
+	NodeID             string            `json:"node_id"`
+	Service            string            `json:"service"`
+	DisplayName        string            `json:"display_name"`
+	Port               uint16            `json:"port"`
+	LanAddrs           []string          `json:"lan_addrs"`
+	ReachabilityScopes []string          `json:"reachability_scopes"`
+	Tags               []string          `json:"tags"`
+	Metadata           map[string]string `json:"metadata"`
+	Lease              LeaseInfo         `json:"lease"`
 }
 
 // DiscoveryEvent describes one watch stream event.
@@ -367,6 +395,11 @@ func (c *Client) ListNetworkIDCandidates() ([]DerivedNetworkID, error) {
 	return ListNetworkIDCandidates(c.address)
 }
 
+// ListReachabilityScopes returns all locally derived subnet scopes.
+func (c *Client) ListReachabilityScopes() ([]string, error) {
+	return ListReachabilityScopes(c.address)
+}
+
 // AnnounceOnce resolves addresses and performs one registration request.
 //
 // The returned node is the server normalized record after deduplication and
@@ -405,15 +438,16 @@ func (c *Client) AnnounceOnce(ctx context.Context, spec AnnounceSpec) (Discovere
 }
 
 type announcePayload struct {
-	NetworkID   string            `json:"network_id"`
-	NodeID      string            `json:"node_id"`
-	Service     string            `json:"service"`
-	DisplayName string            `json:"display_name"`
-	Port        uint16            `json:"port"`
-	LanAddrs    []string          `json:"lan_addrs"`
-	Tags        []string          `json:"tags,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	TTLSeconds  uint64            `json:"ttl_secs"`
+	NetworkID          *string           `json:"network_id,omitempty"`
+	NodeID             string            `json:"node_id"`
+	Service            string            `json:"service"`
+	DisplayName        string            `json:"display_name"`
+	Port               uint16            `json:"port"`
+	LanAddrs           []string          `json:"lan_addrs"`
+	ReachabilityScopes []string          `json:"reachability_scopes,omitempty"`
+	Tags               []string          `json:"tags,omitempty"`
+	Metadata           map[string]string `json:"metadata,omitempty"`
+	TTLSeconds         uint64            `json:"ttl_secs"`
 }
 
 // AnnounceHandle manages a background announce loop started by Client.Announce.
@@ -640,24 +674,34 @@ func (c *Client) doDiscover(ctx context.Context, filter DiscoveryFilter) (discov
 
 func (c *Client) listURL(filter DiscoveryFilter) string {
 	values := url.Values{}
-	values.Set("network_id", filter.NetworkID)
+	if filter.NetworkID != nil && *filter.NetworkID != "" {
+		values.Set("network_id", *filter.NetworkID)
+	}
 	if filter.Service != "" {
 		values.Set("service", filter.Service)
 	}
 	for _, tag := range filter.Tags {
 		values.Add("tag", tag)
+	}
+	for _, scope := range filter.ReachabilityScopes {
+		values.Add("scope", scope)
 	}
 	return fmt.Sprintf("%s/v1/nodes?%s", c.baseURL, values.Encode())
 }
 
 func (c *Client) watchURL(filter DiscoveryFilter, cursor *uint64) string {
 	values := url.Values{}
-	values.Set("network_id", filter.NetworkID)
+	if filter.NetworkID != nil && *filter.NetworkID != "" {
+		values.Set("network_id", *filter.NetworkID)
+	}
 	if filter.Service != "" {
 		values.Set("service", filter.Service)
 	}
 	for _, tag := range filter.Tags {
 		values.Add("tag", tag)
+	}
+	for _, scope := range filter.ReachabilityScopes {
+		values.Add("scope", scope)
 	}
 	if cursor != nil {
 		values.Set("cursor", strconv.FormatUint(*cursor, 10))
@@ -843,21 +887,39 @@ func (c *Client) ResolveAnnounceAddrs(spec AnnounceSpec) ([]string, error) {
 	return dedupeStrings(addrs), nil
 }
 
+// ResolveReachabilityScopes resolves the final reachability scope list.
+func (c *Client) ResolveReachabilityScopes(spec AnnounceSpec) ([]string, error) {
+	scopes := append([]string{}, spec.ReachabilityScopes...)
+	if spec.AutoReachabilityScopes {
+		autoScopes, err := ListReachabilityScopes(c.mergedAddressSelection(spec.AddressSelection))
+		if err != nil {
+			return nil, err
+		}
+		scopes = append(scopes, autoScopes...)
+	}
+	return dedupeStrings(scopes), nil
+}
+
 func (c *Client) buildAnnouncement(spec AnnounceSpec) (announcePayload, error) {
 	lanAddrs, err := c.ResolveAnnounceAddrs(spec)
 	if err != nil {
 		return announcePayload{}, err
 	}
+	reachabilityScopes, err := c.ResolveReachabilityScopes(spec)
+	if err != nil {
+		return announcePayload{}, err
+	}
 	return announcePayload{
-		NetworkID:   spec.NetworkID,
-		NodeID:      spec.NodeID,
-		Service:     spec.Service,
-		DisplayName: spec.DisplayName,
-		Port:        spec.Port,
-		LanAddrs:    lanAddrs,
-		Tags:        dedupeStrings(spec.Tags),
-		Metadata:    spec.Metadata,
-		TTLSeconds:  spec.TTLSeconds,
+		NetworkID:          spec.NetworkID,
+		NodeID:             spec.NodeID,
+		Service:            spec.Service,
+		DisplayName:        spec.DisplayName,
+		Port:               spec.Port,
+		LanAddrs:           lanAddrs,
+		ReachabilityScopes: reachabilityScopes,
+		Tags:               dedupeStrings(spec.Tags),
+		Metadata:           spec.Metadata,
+		TTLSeconds:         spec.TTLSeconds,
 	}, nil
 }
 
@@ -1015,6 +1077,19 @@ func ListNetworkIDCandidates(selection AddressSelection) ([]DerivedNetworkID, er
 		return 0
 	})
 	return candidates, nil
+}
+
+// ListReachabilityScopes derives local subnet scopes from local interfaces.
+func ListReachabilityScopes(selection AddressSelection) ([]string, error) {
+	candidates, err := ListNetworkIDCandidates(selection)
+	if err != nil {
+		return nil, err
+	}
+	scopes := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		scopes = append(scopes, candidate.Scope)
+	}
+	return dedupeStrings(scopes), nil
 }
 
 // ResolveNetworkIDWithSelection derives one local discovery domain identifier.

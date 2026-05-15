@@ -22,14 +22,18 @@ SDK 公开对象:
 - `AnnounceHandle`
 - `WatchHandle`
 
-自动 `network_id` 相关接口:
+自动发现域与可达域相关接口:
 
 - `client.ResolveNetworkID()`
 - `client.ListNetworkIDCandidates()`
+- `client.ListReachabilityScopes()`
 - `ResolveNetworkIDWithSelection(selection)`
 - `ListNetworkIDCandidates(selection)`
 
-当前自动推导策略与 Rust 保持一致, 基于本机子网前缀指纹, 不依赖网关 MAC 或 cgo.
+推荐模型是:
+
+- `network_id`: 可选逻辑发现域
+- `reachability_scopes`: 本机子网前缀列表, 用于自动 overlap 匹配
 
 最小示例:
 
@@ -39,9 +43,17 @@ networkID, err := client.ResolveNetworkID()
 if err != nil {
 	return err
 }
+scopes, err := client.ListReachabilityScopes()
+if err != nil {
+	return err
+}
+filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_demo._tcp").AddTag("stable")
+for _, scope := range scopes {
+	filter = filter.AddReachabilityScope(scope)
+}
 nodes, err := client.Discover(
 	context.Background(),
-	lnd.NewDiscoveryFilter(networkID).WithService("_demo._tcp").AddTag("stable"),
+	filter,
 )
 if err != nil {
 	return err

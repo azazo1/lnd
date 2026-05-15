@@ -617,18 +617,24 @@ pub unsafe extern "C" fn lnd_client_clear_interface_filters(handle: *mut LndClie
 #[unsafe(no_mangle)]
 /// Create a discovery filter handle.
 ///
-/// `network_id` is required. Service and tag constraints can be added later.
+/// `network_id` may be null or empty. Service, tag and scope constraints can be
+/// added later.
 ///
 /// Returns a new handle on success, or `NULL` on failure. Inspect
 /// `lnd_last_error()` when `NULL` is returned.
 ///
 /// # Safety
-/// `network_id` must be valid UTF-8.
+/// `network_id` may be null, otherwise it must be valid UTF-8.
 pub unsafe extern "C" fn lnd_discovery_filter_new(
     network_id: *const c_char,
 ) -> *mut LndDiscoveryFilterHandle {
     ptr_result(catch_ffi(|| {
-        let filter = DiscoveryFilter::new(read_cstr(network_id, "network_id")?);
+        let mut filter = DiscoveryFilter::new();
+        if let Some(network_id) = read_optional_cstr(network_id, "network_id")?
+            && !network_id.trim().is_empty()
+        {
+            filter = filter.with_network_id(network_id);
+        }
         Ok(into_handle::<
             LndDiscoveryFilterState,
             LndDiscoveryFilterHandle,
@@ -666,6 +672,27 @@ pub unsafe extern "C" fn lnd_discovery_filter_set_service(
         let state =
             cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
         state.filter.service = Some(read_cstr(service, "service")?);
+        Ok(())
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// Set the logical network_id filter.
+///
+/// Pass null or an empty string to clear the network_id constraint.
+///
+/// # Safety
+/// `handle` must be a live discovery filter handle.
+/// `network_id` may be null, otherwise it must be valid UTF-8.
+pub unsafe extern "C" fn lnd_discovery_filter_set_network_id(
+    handle: *mut LndDiscoveryFilterHandle,
+    network_id: *const c_char,
+) -> bool {
+    bool_result(catch_ffi(|| {
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        state.filter.network_id = read_optional_cstr(network_id, "network_id")?
+            .filter(|value| !value.trim().is_empty());
         Ok(())
     }))
 }
@@ -727,6 +754,43 @@ pub unsafe extern "C" fn lnd_discovery_filter_clear_tags(
         let state =
             cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
         state.filter.tags.clear();
+        Ok(())
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// Add one reachability scope overlap filter.
+///
+/// # Safety
+/// `handle` must be a live discovery filter handle.
+/// `scope` must be valid UTF-8.
+pub unsafe extern "C" fn lnd_discovery_filter_add_scope(
+    handle: *mut LndDiscoveryFilterHandle,
+    scope: *const c_char,
+) -> bool {
+    bool_result(catch_ffi(|| {
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        state
+            .filter
+            .reachability_scopes
+            .push(read_cstr(scope, "scope")?);
+        Ok(())
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// Clear discovery reachability scope filters.
+///
+/// # Safety
+/// `handle` must be a live discovery filter handle.
+pub unsafe extern "C" fn lnd_discovery_filter_clear_scopes(
+    handle: *mut LndDiscoveryFilterHandle,
+) -> bool {
+    bool_result(catch_ffi(|| {
+        let state =
+            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        state.filter.reachability_scopes.clear();
         Ok(())
     }))
 }
@@ -848,13 +912,17 @@ pub unsafe extern "C" fn lnd_announce_spec_new(
     port: u16,
 ) -> *mut LndAnnounceSpecHandle {
     ptr_result(catch_ffi(|| {
-        let spec = AnnounceSpec::new(
-            read_cstr(network_id, "network_id")?,
+        let mut spec = AnnounceSpec::new(
             read_cstr(node_id, "node_id")?,
             read_cstr(service, "service")?,
             read_cstr(display_name, "display_name")?,
             port,
         );
+        if let Some(network_id) = read_optional_cstr(network_id, "network_id")?
+            && !network_id.trim().is_empty()
+        {
+            spec = spec.with_network_id(network_id);
+        }
         Ok(into_handle::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
             LndAnnounceSpecState { spec },
         ))
@@ -890,7 +958,8 @@ pub unsafe extern "C" fn lnd_announce_spec_set_network_id(
             handle,
             "announce spec handle",
         )?;
-        state.spec.network_id = read_cstr(network_id, "network_id")?;
+        state.spec.network_id = read_optional_cstr(network_id, "network_id")?
+            .filter(|value| !value.trim().is_empty());
         Ok(())
     }))
 }
@@ -1018,6 +1087,25 @@ pub unsafe extern "C" fn lnd_announce_spec_set_auto_lan_addrs(
 }
 
 #[unsafe(no_mangle)]
+/// Set whether automatic reachability scope collection is enabled.
+///
+/// # Safety
+/// `handle` must be a live announce spec handle.
+pub unsafe extern "C" fn lnd_announce_spec_set_auto_reachability_scopes(
+    handle: *mut LndAnnounceSpecHandle,
+    on: bool,
+) -> bool {
+    bool_result(catch_ffi(|| {
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
+        state.spec.auto_reachability_scopes = on;
+        Ok(())
+    }))
+}
+
+#[unsafe(no_mangle)]
 /// Add one explicit LAN address.
 ///
 /// The address should be passed in `host:port` form.
@@ -1065,6 +1153,48 @@ pub unsafe extern "C" fn lnd_announce_spec_clear_lan_addrs(
             "announce spec handle",
         )?;
         state.spec.lan_addrs = None;
+        Ok(())
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// Add one explicit reachability scope.
+///
+/// # Safety
+/// `handle` must be a live announce spec handle.
+/// `scope` must be valid UTF-8.
+pub unsafe extern "C" fn lnd_announce_spec_add_scope(
+    handle: *mut LndAnnounceSpecHandle,
+    scope: *const c_char,
+) -> bool {
+    bool_result(catch_ffi(|| {
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
+        state
+            .spec
+            .reachability_scopes
+            .get_or_insert_with(Vec::new)
+            .push(read_cstr(scope, "scope")?);
+        Ok(())
+    }))
+}
+
+#[unsafe(no_mangle)]
+/// Clear explicit reachability scopes.
+///
+/// # Safety
+/// `handle` must be a live announce spec handle.
+pub unsafe extern "C" fn lnd_announce_spec_clear_scopes(
+    handle: *mut LndAnnounceSpecHandle,
+) -> bool {
+    bool_result(catch_ffi(|| {
+        let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
+            handle,
+            "announce spec handle",
+        )?;
+        state.spec.reachability_scopes = None;
         Ok(())
     }))
 }

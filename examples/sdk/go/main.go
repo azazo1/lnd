@@ -15,9 +15,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	scopes, err := client.ListReachabilityScopes()
+	if err != nil {
+		log.Fatal(err)
+	}
+	filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_demo._tcp").AddTag("stable")
+	for _, scope := range scopes {
+		filter = filter.AddReachabilityScope(scope)
+	}
 	nodes, err := client.Discover(
 		context.Background(),
-		lnd.NewDiscoveryFilter(networkID).WithService("_demo._tcp").AddTag("stable"),
+		filter,
 	)
 	if err != nil {
 		log.Fatal(err)

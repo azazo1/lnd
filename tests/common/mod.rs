@@ -75,7 +75,7 @@ impl Drop for TestServer {
 
 pub fn sample_spec(node_id: &str, ttl_secs: u64) -> AnnounceSpec {
     AnnounceSpec {
-        network_id: "net-a".to_string(),
+        network_id: Some("net-a".to_string()),
         node_id: node_id.to_string(),
         service: "svc".to_string(),
         display_name: format!("node-{node_id}"),
@@ -83,6 +83,8 @@ pub fn sample_spec(node_id: &str, ttl_secs: u64) -> AnnounceSpec {
         lan_addrs: Some(vec!["192.168.1.10:8080".parse().unwrap()]),
         auto_lan_addrs: false,
         address_selection: None,
+        reachability_scopes: Some(vec!["192.168.1.0/24".to_string()]),
+        auto_reachability_scopes: false,
         tags: vec!["alpha".to_string()],
         metadata: [("role".to_string(), "api".to_string())]
             .into_iter()

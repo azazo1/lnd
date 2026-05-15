@@ -1,8 +1,9 @@
 use futures::StreamExt;
 use lnd::{
     AddressSelection, AnnounceHandle as RustAnnounceHandle, ClientConfig, LndClient,
-    list_network_id_candidates, parse_announce_json, parse_filter_json,
+    list_network_id_candidates, list_reachability_scopes, parse_announce_json, parse_filter_json,
     resolve_announce_addrs_with_defaults, resolve_network_id_with_selection,
+    resolve_reachability_scopes_with_defaults,
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -151,6 +152,24 @@ fn list_network_id_candidates_json(
 }
 
 #[pyfunction]
+fn list_reachability_scopes_json(
+    py: Python<'_>,
+    _server_url: String,
+    _bearer_token: String,
+    _timeout_ms: u64,
+    _reconnect_backoff_ms: (u64, u64),
+    address_defaults_json: String,
+) -> PyResult<PyObject> {
+    let scopes = list_reachability_scopes(&parse_defaults(&address_defaults_json)?)
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    json_to_py(
+        py,
+        serde_json::to_value(scopes)
+            .map_err(|error| PyRuntimeError::new_err(format!("failed to encode json: {error}")))?,
+    )
+}
+
+#[pyfunction]
 fn discover_json(
     py: Python<'_>,
     server_url: String,
@@ -224,8 +243,15 @@ fn announce_once_json(
     let addrs = client
         .resolve_announce_addrs(&spec)
         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    let scopes = resolve_reachability_scopes_with_defaults(
+        &spec,
+        &parse_defaults(&address_defaults_json)?,
+    )
+    .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    let mut announcement = spec.into_announcement(addrs);
+    announcement.reachability_scopes = scopes;
     let node = runtime()?
-        .block_on(client.announce_once(spec.into_announcement(addrs)))
+        .block_on(client.announce_once(announcement))
         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
     json_to_py(
         py,
@@ -322,6 +348,7 @@ fn watch_start(
 fn _native(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(resolve_network_id, module)?)?;
     module.add_function(wrap_pyfunction!(list_network_id_candidates_json, module)?)?;
+    module.add_function(wrap_pyfunction!(list_reachability_scopes_json, module)?)?;
     module.add_function(wrap_pyfunction!(discover_json, module)?)?;
     module.add_function(wrap_pyfunction!(resolve_announce_addrs_json, module)?)?;
     module.add_function(wrap_pyfunction!(announce_once_json, module)?)?;

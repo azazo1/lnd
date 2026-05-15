@@ -284,13 +284,14 @@ bool lnd_client_clear_interface_filters(struct LndClientHandle *handle);
 /**
  * Create a discovery filter handle.
  *
- * `network_id` is required. Service and tag constraints can be added later.
+ * `network_id` may be null or empty. Service, tag and scope constraints can be
+ * added later.
  *
  * Returns a new handle on success, or `NULL` on failure. Inspect
  * `lnd_last_error()` when `NULL` is returned.
  *
  * # Safety
- * `network_id` must be valid UTF-8.
+ * `network_id` may be null, otherwise it must be valid UTF-8.
  */
 struct LndDiscoveryFilterHandle *lnd_discovery_filter_new(const char *network_id);
 
@@ -317,6 +318,18 @@ void lnd_discovery_filter_free(struct LndDiscoveryFilterHandle *handle);
  * `service` must be valid UTF-8.
  */
 bool lnd_discovery_filter_set_service(struct LndDiscoveryFilterHandle *handle, const char *service);
+
+/**
+ * Set the logical network_id filter.
+ *
+ * Pass null or an empty string to clear the network_id constraint.
+ *
+ * # Safety
+ * `handle` must be a live discovery filter handle.
+ * `network_id` may be null, otherwise it must be valid UTF-8.
+ */
+bool lnd_discovery_filter_set_network_id(struct LndDiscoveryFilterHandle *handle,
+                                         const char *network_id);
 
 /**
  * Clear the discovery service filter.
@@ -353,6 +366,23 @@ bool lnd_discovery_filter_add_tag(struct LndDiscoveryFilterHandle *handle, const
  * `handle` must be a live discovery filter handle.
  */
 bool lnd_discovery_filter_clear_tags(struct LndDiscoveryFilterHandle *handle);
+
+/**
+ * Add one reachability scope overlap filter.
+ *
+ * # Safety
+ * `handle` must be a live discovery filter handle.
+ * `scope` must be valid UTF-8.
+ */
+bool lnd_discovery_filter_add_scope(struct LndDiscoveryFilterHandle *handle, const char *scope);
+
+/**
+ * Clear discovery reachability scope filters.
+ *
+ * # Safety
+ * `handle` must be a live discovery filter handle.
+ */
+bool lnd_discovery_filter_clear_scopes(struct LndDiscoveryFilterHandle *handle);
 
 /**
  * Run a one-shot discovery request from a filter handle and return JSON.
@@ -529,6 +559,14 @@ bool lnd_announce_spec_set_port(struct LndAnnounceSpecHandle *handle, uint16_t p
 bool lnd_announce_spec_set_auto_lan_addrs(struct LndAnnounceSpecHandle *handle, bool on);
 
 /**
+ * Set whether automatic reachability scope collection is enabled.
+ *
+ * # Safety
+ * `handle` must be a live announce spec handle.
+ */
+bool lnd_announce_spec_set_auto_reachability_scopes(struct LndAnnounceSpecHandle *handle, bool on);
+
+/**
  * Add one explicit LAN address.
  *
  * The address should be passed in `host:port` form.
@@ -552,6 +590,23 @@ bool lnd_announce_spec_add_lan_addr(struct LndAnnounceSpecHandle *handle, const 
  * `handle` must be a live announce spec handle.
  */
 bool lnd_announce_spec_clear_lan_addrs(struct LndAnnounceSpecHandle *handle);
+
+/**
+ * Add one explicit reachability scope.
+ *
+ * # Safety
+ * `handle` must be a live announce spec handle.
+ * `scope` must be valid UTF-8.
+ */
+bool lnd_announce_spec_add_scope(struct LndAnnounceSpecHandle *handle, const char *scope);
+
+/**
+ * Clear explicit reachability scopes.
+ *
+ * # Safety
+ * `handle` must be a live announce spec handle.
+ */
+bool lnd_announce_spec_clear_scopes(struct LndAnnounceSpecHandle *handle);
 
 /**
  * Set whether auto discovered addresses may include loopback.

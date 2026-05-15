@@ -42,6 +42,10 @@ struct FilterArgs {
     network_id: Option<String>,
     #[arg(long, default_value_t = false)]
     auto_network_id: bool,
+    #[arg(long, default_value_t = true)]
+    auto_scope_overlap: bool,
+    #[arg(long = "scope")]
+    reachability_scopes: Vec<String>,
     #[arg(long)]
     service: Option<String>,
     #[arg(long = "tag")]
@@ -56,6 +60,10 @@ struct AnnounceArgs {
     network_id: Option<String>,
     #[arg(long, default_value_t = false)]
     auto_network_id: bool,
+    #[arg(long, default_value_t = true)]
+    auto_reachability_scopes: bool,
+    #[arg(long = "scope")]
+    reachability_scopes: Vec<String>,
     #[arg(long)]
     service: String,
     #[arg(long)]
@@ -136,6 +144,12 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
         lan_addrs: explicit_addrs,
         auto_lan_addrs: args.auto_lan_addrs,
         address_selection: None,
+        reachability_scopes: if args.reachability_scopes.is_empty() {
+            None
+        } else {
+            Some(args.reachability_scopes)
+        },
+        auto_reachability_scopes: args.auto_reachability_scopes,
         tags: args.tags,
         metadata: metadata_from_pairs(&args.metadata)?,
         ttl_secs: args.ttl_secs,
@@ -168,11 +182,22 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
 
 async fn discover(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
     let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
-    let filter = DiscoveryFilter {
-        network_id,
-        service: args.service,
-        tags: args.tags,
-    };
+    let mut filter = DiscoveryFilter::new();
+    if let Some(network_id) = network_id {
+        filter = filter.with_network_id(network_id);
+    }
+    if let Some(service) = args.service {
+        filter = filter.with_service(service);
+    }
+    filter = filter.with_tags(args.tags);
+    if args.auto_scope_overlap {
+        for scope in client.list_reachability_scopes()? {
+            filter = filter.add_reachability_scope(scope.scope);
+        }
+    }
+    for scope in args.reachability_scopes {
+        filter = filter.add_reachability_scope(scope);
+    }
     let nodes = client.list(filter).await?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&nodes)?);
@@ -196,11 +221,22 @@ async fn discover(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
 
 async fn watch(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
     let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
-    let filter = DiscoveryFilter {
-        network_id,
-        service: args.service,
-        tags: args.tags,
-    };
+    let mut filter = DiscoveryFilter::new();
+    if let Some(network_id) = network_id {
+        filter = filter.with_network_id(network_id);
+    }
+    if let Some(service) = args.service {
+        filter = filter.with_service(service);
+    }
+    filter = filter.with_tags(args.tags);
+    if args.auto_scope_overlap {
+        for scope in client.list_reachability_scopes()? {
+            filter = filter.add_reachability_scope(scope.scope);
+        }
+    }
+    for scope in args.reachability_scopes {
+        filter = filter.add_reachability_scope(scope);
+    }
     let mut stream = client.watch(filter);
     while let Some(event) = stream.next().await {
         let event = event?;
@@ -217,15 +253,14 @@ fn resolve_network_id_arg(
     client: &LndClient,
     network_id: Option<String>,
     auto_network_id: bool,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<Option<String>> {
     match (network_id, auto_network_id) {
-        (Some(network_id), false) => Ok(network_id),
-        (Some(network_id), true) => Ok(network_id),
+        (Some(network_id), false) => Ok(Some(network_id)),
+        (Some(network_id), true) => Ok(Some(network_id)),
         (None, true) => client
             .resolve_network_id()
+            .map(Some)
             .map_err(|error| anyhow::anyhow!(error.to_string())),
-        (None, false) => Err(anyhow::anyhow!(
-            "missing network_id: pass --network-id or enable --auto-network-id"
-        )),
+        (None, false) => Ok(None),
     }
 }

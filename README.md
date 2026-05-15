@@ -1,6 +1,6 @@
 # Local Network Discover
 
-`lnd` 是一个基于 HTTP(S) 中心注册表的局域网发现库与应用. 它不依赖组播广播, 而是让同一 `network_id` 内的节点主动向中心 server 注册租约, 再由 server 负责查询和实时事件分发. 目标是提供比 mDNS 更稳定, 更可控, 也更容易跨子网和容器环境部署的发现能力.
+`lnd` 是一个基于 HTTP(S) 中心注册表的局域网发现库与应用. 它不依赖组播广播, 而是让节点主动向中心 server 注册租约, 再由 server 负责查询和实时事件分发. 目标是提供比 mDNS 更稳定, 更可控, 也更容易跨子网和容器环境部署的发现能力.
 
 仓库同时产出三类内容:
 
@@ -18,8 +18,9 @@ v1 协议为 REST + SSE:
 ## 特性
 
 - 中心化租约注册表, 避免 mDNS 在复杂网络环境中的组播不稳定问题
-- 基于 `network_id + service + tags` 的发现过滤
-- `network_id` 既可显式指定, 也可按本机子网前缀自动推导
+- 基于 `network_id + service + tags + reachability_scopes overlap` 的发现过滤
+- `network_id` 可选, 用于逻辑隔离
+- `reachability_scopes` 自动基于本机子网前缀收集, 用于多网卡和多子网可达性重叠匹配
 - 客户端带抖动续租, 指数退避重连, SSE 断线重连和 cursor 恢复
 - 默认自动收集非 loopback 的私网 IPv4, 也支持 loopback, IPv6, 接口白名单和黑名单
 - Rust API 采用 builder 和 handle 风格, 便于嵌入其他项目
@@ -34,8 +35,9 @@ v1 协议为 REST + SSE:
 4. client 按 `ttl_secs / 3` 周期续租, 并加入随机抖动
 5. server 在内存中维护节点表和事件环形缓冲, 为每次变更分配递增 revision
 6. 其他 client 通过 `GET /v1/nodes` 查询当前快照, 或通过 `GET /v1/watch` 订阅 `snapshot/upsert/remove/reset/keepalive`
-7. 如果节点停止续租, server 在租约到期后自动摘除, 并广播 `remove`
-8. 如果 watch 端 cursor 太旧或 SSE lag 过大, server 返回 `reset`, client 自动拉全量快照重同步
+7. 默认查询会携带本机 `reachability_scopes`, server 返回与查询方 scope 有交集的节点
+8. 如果节点停止续租, server 在租约到期后自动摘除, 并广播 `remove`
+9. 如果 watch 端 cursor 太旧或 SSE lag 过大, server 返回 `reset`, client 自动拉全量快照重同步
 
 可以把它理解为: 把 mDNS 的 "广播可见性" 改成 "中心 server 仲裁可见性".
 
@@ -43,8 +45,8 @@ v1 协议为 REST + SSE:
 flowchart LR
     A["Node A"] -->|"PUT /v1/nodes/{node_id}"| S["lnd-server"]
     B["Node B"] -->|"PUT /v1/nodes/{node_id}"| S
-    C["Watcher"] -->|"GET /v1/watch?network_id=..."| S
-    D["Discoverer"] -->|"GET /v1/nodes?network_id=..."| S
+    C["Watcher"] -->|"GET /v1/watch?network_id=...&scope=..."| S
+    D["Discoverer"] -->|"GET /v1/nodes?network_id=...&scope=..."| S
     S -->|"SSE: snapshot/upsert/remove"| C
     S -->|"JSON snapshot"| D
 ```
@@ -61,6 +63,7 @@ flowchart LR
   "display_name": "devbox-a",
   "port": 8080,
   "lan_addrs": ["192.168.1.10:8080"],
+  "reachability_scopes": ["192.168.1.0/24"],
   "tags": ["stable", "blue"],
   "metadata": {
     "version": "1.0.0",
@@ -80,6 +83,7 @@ flowchart LR
   "display_name": "devbox-a",
   "port": 8080,
   "lan_addrs": ["192.168.1.10:8080"],
+  "reachability_scopes": ["192.168.1.0/24"],
   "tags": ["stable", "blue"],
   "metadata": {
     "version": "1.0.0"
@@ -107,12 +111,14 @@ flowchart LR
   - `include_link_local_ipv4 = false`
   - `include_ipv6 = false`
 
-## `network_id` 的两种用法
+## `network_id` 与 `reachability_scopes`
 
-`network_id` 是逻辑发现域. v1 支持两种方式:
+当前推荐模型是双层的:
 
-- 显式指定: 由部署者直接传入, 最稳定, 最适合跨网段、容器、VPN、VLAN 或多网卡环境
-- 自动推导: client 根据本机符合 `AddressSelection` 规则的局域网前缀生成稳定指纹
+- `network_id`: 可选逻辑发现域, 用于区分 `dev`, `staging`, `prod` 或不同租户
+- `reachability_scopes`: 本机子网前缀列表, 用于自动可达性 overlap 匹配
+
+`reachability_scopes` 的自动推导规则:
 
 当前自动推导规则:
 
@@ -122,11 +128,11 @@ flowchart LR
 
 当前没有使用网关 MAC 作为默认标识策略. 原因是默认网关和邻居表的获取在不同平台上差异较大, 对容器和受限环境也不够稳定. 子网前缀指纹更容易在 Rust、Go、Python 和 C ABI 之间保持一致行为.
 
-自动推导的限制:
+使用建议:
 
-- 多网卡时可能出现多个候选前缀, 此时会返回错误而不是猜测
-- 如果需要更可控的结果, 应显式设置 `network_id`, 或通过接口白名单缩小范围
-- 如果不同局域网恰好复用了同一子网前缀, 它们也会推导出同一个 `network_id`
+- 零配置场景: 只依赖 `reachability_scopes`
+- 严肃部署: `network_id + reachability_scopes overlap`
+- 多网卡场景: 保留自动 `reachability_scopes`, 必要时显式指定 `network_id`
 
 可以先列出候选:
 
@@ -134,6 +140,12 @@ flowchart LR
 - Python: `client.list_network_id_candidates()`
 - Go: `client.ListNetworkIDCandidates()`
 - C ABI: `lnd_list_network_id_candidates_json()`
+
+可达域候选:
+
+- Rust: `client.list_reachability_scopes()`
+- Python: `client.list_reachability_scopes()`
+- Go: `client.ListReachabilityScopes()`
 
 ## 构建
 
@@ -205,7 +217,6 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   announce \
-  --network-id office-a \
   --service _demo._tcp \
   --port 8080 \
   --display-name devbox-a \
@@ -223,6 +234,7 @@ cargo run --bin lnd-client -- \
   --bearer-token dev-token \
   announce \
   --auto-network-id \
+  --auto-reachability-scopes \
   --service _demo._tcp \
   --port 8080 \
   --display-name devbox-a
@@ -236,6 +248,8 @@ cargo run --bin lnd-client -- \
 - `--node-id-path`: 从状态文件读取或生成 node id
 - `--lan-addr`: 手工指定地址, 可多次传入
 - `--auto-lan-addrs`: 是否自动补充本机地址
+- `--auto-reachability-scopes`: 是否自动补充本机子网可达域
+- `--scope`: 显式追加可达域, 可多次传入
 - `--include-loopback`: 是否允许自动发现到 loopback
 - `--include-ipv6`: 是否允许自动发现到 IPv6
 - `--enable-interface`: 自动选址接口白名单
@@ -266,6 +280,7 @@ cargo run --bin lnd-client -- \
   --bearer-token dev-token \
   discover \
   --network-id office-a \
+  --auto-scope-overlap \
   --service _demo._tcp \
   --tag stable
 ```
@@ -277,7 +292,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   discover \
-  --auto-network-id \
+  --auto-scope-overlap \
   --service _demo._tcp
 ```
 
@@ -299,7 +314,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   watch \
-  --auto-network-id \
+  --auto-scope-overlap \
   --service _demo._tcp \
   --json
 ```
@@ -339,14 +354,14 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     let network_id = client.resolve_network_id()?;
+    let scopes = client
+        .list_reachability_scopes()?
+        .into_iter()
+        .map(|scope| scope.scope)
+        .collect::<Vec<_>>();
 
-    let spec = AnnounceSpec::new(
-        network_id.clone(),
-        "node-a",
-        "_demo._tcp",
-        "devbox-a",
-        8080,
-    )
+    let spec = AnnounceSpec::new("node-a", "_demo._tcp", "devbox-a", 8080)
+    .with_network_id(network_id.clone())
     .add_tag("stable")
     .insert_metadata("version", "1.0.0")
     .include_loopback(true);
@@ -354,11 +369,20 @@ async fn main() -> anyhow::Result<()> {
     let _announce = client.announce_loop(spec)?;
 
     let nodes = client
-        .list(DiscoveryFilter::new(network_id).with_service("_demo._tcp"))
+        .list(
+            DiscoveryFilter::new()
+                .with_network_id(network_id)
+                .with_service("_demo._tcp")
+                .with_reachability_scopes(scopes.clone()),
+        )
         .await?;
     println!("nodes = {}", nodes.len());
 
-    let mut watch = client.watch(DiscoveryFilter::new("office-a"));
+    let mut watch = client.watch(
+        DiscoveryFilter::new()
+            .with_service("_demo._tcp")
+            .with_reachability_scopes(scopes),
+    );
     while let Some(event) = watch.next().await {
         println!("{:?}", event?);
     }
@@ -379,6 +403,7 @@ Rust 侧主要公开类型:
 - `DiscoveryEvent`
 - `LeaseInfo`
 - `DerivedNetworkId`
+- `ReachabilityScope`
 
 与 `mdns-sd` 风格相近的点:
 
@@ -418,6 +443,12 @@ Rust 侧主要公开类型:
 - `client.list_network_id_candidates()`
 - `resolve_network_id_with_selection(&selection)`
 - `list_network_id_candidates(&selection)`
+
+自动 `reachability_scopes` 相关 API:
+
+- `client.list_reachability_scopes()`
+- `client.resolve_reachability_scopes(&spec)`
+- `resolve_reachability_scopes_with_defaults(&spec, &selection)`
 
 ### 作为嵌入式 server 使用
 
@@ -499,7 +530,9 @@ discover:
 
 - `lnd_discovery_filter_new`
 - `lnd_discovery_filter_set_service`
+- `lnd_discovery_filter_set_network_id`
 - `lnd_discovery_filter_add_tag`
+- `lnd_discovery_filter_add_scope`
 - `lnd_discover`
 - `lnd_discover_json`
 - `lnd_resolve_network_id`
@@ -514,7 +547,9 @@ announce:
 - `lnd_announce_spec_set_display_name`
 - `lnd_announce_spec_set_port`
 - `lnd_announce_spec_set_auto_lan_addrs`
+- `lnd_announce_spec_set_auto_reachability_scopes`
 - `lnd_announce_spec_add_lan_addr`
+- `lnd_announce_spec_add_scope`
 - `lnd_announce_spec_set_include_loopback`
 - `lnd_announce_spec_set_include_ipv6`
 - `lnd_announce_spec_set_include_private_ipv4`
@@ -634,8 +669,8 @@ from lnd import Client, DiscoveryFilter
 
 with Client("http://127.0.0.1:8765", "dev-token") as client:
     network_id = client.resolve_network_id()
-    nodes = client.discover(
-        DiscoveryFilter(network_id).with_service("_demo._tcp").add_tag("stable")
+    nodes = client.discover_with_auto_scope_overlap(
+        DiscoveryFilter().with_network_id(network_id).with_service("_demo._tcp").add_tag("stable")
     )
     print(nodes)
 ```
@@ -667,9 +702,17 @@ networkID, err := client.ResolveNetworkID()
 if err != nil {
     log.Fatal(err)
 }
+scopes, err := client.ListReachabilityScopes()
+if err != nil {
+    log.Fatal(err)
+}
+filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_demo._tcp").AddTag("stable")
+for _, scope := range scopes {
+    filter = filter.AddReachabilityScope(scope)
+}
 nodes, err := client.Discover(
     context.Background(),
-    lnd.NewDiscoveryFilter(networkID).WithService("_demo._tcp").AddTag("stable"),
+    filter,
 )
 ```
 
@@ -705,8 +748,9 @@ Bindings:
 
 - v1 只做单 server, 不做高可用和集群复制
 - server 状态驻留内存, 重启后依赖 client 自动重新注册
-- `network_id` 只是逻辑发现域, 不代表网络可达性边界
-- 自动 `network_id` 当前基于本机子网前缀指纹, 不基于网关 MAC
+- `network_id` 是可选逻辑发现域, 不代表网络可达性边界
+- `reachability_scopes` 基于本机子网前缀, 用于自动可达性 overlap 匹配
+- 自动 `network_id` 当前仍基于本机子网前缀指纹, 不基于网关 MAC
 - v1 先只建模单端口和一组 LAN 地址, 不做多端点协议图
 - C ABI 追求稳定和可包一层, 不直接暴露 Rust 内部泛型和异步类型
 

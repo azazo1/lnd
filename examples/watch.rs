@@ -7,7 +7,11 @@ async fn main() -> anyhow::Result<()> {
         .bearer_token("dev-token")
         .build()?;
 
-    let mut stream = client.watch(DiscoveryFilter::new("office-a").with_service("_demo._tcp"));
+    let mut stream = client.watch(
+        DiscoveryFilter::new()
+            .with_network_id("office-a")
+            .with_service("_demo._tcp"),
+    );
     while let Some(event) = stream.next().await {
         println!("{}", serde_json::to_string_pretty(&event?)?);
     }

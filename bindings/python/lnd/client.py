@@ -42,22 +42,30 @@ class DiscoveryFilter:
     """一次性发现和持续 watch 使用的过滤器.
 
     参数:
-    - `network_id`: 逻辑发现域, 必填.
+    - `network_id`: 可选逻辑发现域.
     - `service`: 可选服务名过滤器.
     - `tags`: 需要全部满足的 tag 列表.
+    - `reachability_scopes`: 至少重叠一个即可匹配.
 
     返回值:
     - 该类的方法都会返回 `self`, 便于链式调用.
 
     使用示例:
     ```python
-    filter_spec = DiscoveryFilter("office-a").with_service("_demo._tcp").add_tag("stable")
+    filter_spec = DiscoveryFilter().with_network_id("office-a").with_service("_demo._tcp")
     ```
     """
 
-    network_id: str
+    network_id: str | None = None
     service: str | None = None
     tags: list[str] = field(default_factory=list)
+    reachability_scopes: list[str] = field(default_factory=list)
+
+    def with_network_id(self, network_id: str | None) -> "DiscoveryFilter":
+        """设置逻辑发现域过滤条件."""
+
+        self.network_id = network_id
+        return self
 
     def with_service(self, service: str) -> "DiscoveryFilter":
         """设置服务名过滤条件.
@@ -75,6 +83,12 @@ class DiscoveryFilter:
         self.tags.append(tag)
         return self
 
+    def add_reachability_scope(self, scope: str) -> "DiscoveryFilter":
+        """追加一个可达域过滤条件."""
+
+        self.reachability_scopes.append(scope)
+        return self
+
 
 @dataclass
 class AnnounceSpec:
@@ -85,7 +99,7 @@ class AnnounceSpec:
     - 同时支持显式 `lan_addrs` 和自动地址解析参数.
 
     参数:
-    - `network_id`: 发现域.
+    - `network_id`: 可选逻辑发现域.
     - `node_id`: 持久节点标识.
     - `service`: 服务名.
     - `display_name`: 展示名称.
@@ -96,14 +110,16 @@ class AnnounceSpec:
     - `include_*` 和接口过滤只影响自动地址解析.
     """
 
-    network_id: str
+    network_id: str | None = None
     node_id: str
     service: str
     display_name: str
     port: int
     auto_lan_addrs: bool = True
+    auto_reachability_scopes: bool = True
     ttl_secs: int = 30
     lan_addrs: list[str] = field(default_factory=list)
+    reachability_scopes: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, str] = field(default_factory=dict)
     include_loopback: bool = False
@@ -127,6 +143,12 @@ class AnnounceSpec:
         """追加一个 tag."""
 
         self.tags.append(tag)
+        return self
+
+    def add_reachability_scope(self, scope: str) -> "AnnounceSpec":
+        """追加一个显式可达域."""
+
+        self.reachability_scopes.append(scope)
         return self
 
     def insert_metadata(self, key: str, value: str) -> "AnnounceSpec":
@@ -249,7 +271,7 @@ class Client:
     使用示例:
     ```python
     with Client("http://127.0.0.1:8765", "dev-token") as client:
-        nodes = client.discover(DiscoveryFilter("office-a"))
+        nodes = client.discover(DiscoveryFilter().with_network_id("office-a"))
         print(nodes)
     ```
     """
@@ -402,6 +424,19 @@ class Client:
         assert isinstance(result, list)
         return result
 
+    def discover_with_auto_scope_overlap(self, filter_spec: DiscoveryFilter) -> list[dict]:
+        """使用本机自动可达域重叠策略执行一次发现."""
+
+        filter_spec = DiscoveryFilter(
+            network_id=filter_spec.network_id,
+            service=filter_spec.service,
+            tags=list(filter_spec.tags),
+            reachability_scopes=list(filter_spec.reachability_scopes),
+        )
+        for scope in self.list_reachability_scopes():
+            filter_spec.add_reachability_scope(scope["scope"])
+        return self.discover(filter_spec)
+
     def resolve_network_id(self) -> str:
         """自动推导一个局域网发现域标识.
 
@@ -434,6 +469,21 @@ class Client:
         result = _call_native(
             "list_network_id_candidates",
             _native.list_network_id_candidates_json,
+            self._server_url,
+            self._bearer_token,
+            self._timeout_ms,
+            self._reconnect_backoff_ms,
+            self._address_defaults_json(),
+        )
+        assert isinstance(result, list)
+        return result
+
+    def list_reachability_scopes(self) -> list[dict]:
+        """列出当前默认地址选择规则下的全部可达域候选项."""
+
+        result = _call_native(
+            "list_reachability_scopes",
+            _native.list_reachability_scopes_json,
             self._server_url,
             self._bearer_token,
             self._timeout_ms,
@@ -544,6 +594,23 @@ class Client:
             self._address_defaults_json(),
         )
         return WatchHandle(handle, callback)
+
+    def watch_with_auto_scope_overlap(
+        self,
+        filter_spec: DiscoveryFilter,
+        callback: WatchCallback,
+    ) -> WatchHandle:
+        """使用本机自动可达域重叠策略启动持续 watch."""
+
+        filter_spec = DiscoveryFilter(
+            network_id=filter_spec.network_id,
+            service=filter_spec.service,
+            tags=list(filter_spec.tags),
+            reachability_scopes=list(filter_spec.reachability_scopes),
+        )
+        for scope in self.list_reachability_scopes():
+            filter_spec.add_reachability_scope(scope["scope"])
+        return self.watch(filter_spec, callback)
 
     def _address_defaults(self) -> dict[str, object]:
         return {

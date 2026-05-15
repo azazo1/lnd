@@ -15,20 +15,20 @@
 
 `pyo3` 只出现在 `bindings/python/native` 这个附属 crate 中, 不污染主 crate.
 
-## 自动 `network_id`
+## 自动发现域与可达域
 
-Python SDK 提供与 Rust 一致的自动发现域推导接口:
+Python SDK 同时提供两类自动能力:
 
 - `client.resolve_network_id() -> str`
 - `client.list_network_id_candidates() -> list[dict]`
+- `client.list_reachability_scopes() -> list[dict]`
+- `client.discover_with_auto_scope_overlap(...)`
+- `client.watch_with_auto_scope_overlap(...)`
 
-当前策略基于本机局域网前缀指纹:
+推荐模型是:
 
-- IPv4 取 `ip & netmask`
-- IPv6 取 `ip/prefixlen`
-- 最终生成稳定的 `lan-<hex>` 字符串
-
-如果本机同时暴露多个同优先级候选子网, `resolve_network_id()` 会抛出异常, 调用方应显式指定 `network_id` 或缩小接口范围.
+- `network_id`: 逻辑发现域, 可选但建议在严肃部署中显式设置
+- `reachability_scopes`: 本机子网前缀列表, 用于自动可达性重叠匹配
 
 ## 构建 wheel
 
@@ -56,8 +56,8 @@ from lnd import Client, DiscoveryFilter
 
 with Client("http://127.0.0.1:8765", "dev-token") as client:
     network_id = client.resolve_network_id()
-    nodes = client.discover(
-        DiscoveryFilter(network_id).with_service("_demo._tcp").add_tag("stable")
+    nodes = client.discover_with_auto_scope_overlap(
+        DiscoveryFilter().with_network_id(network_id).with_service("_demo._tcp").add_tag("stable")
     )
     print(nodes)
 ```
