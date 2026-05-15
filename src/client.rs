@@ -18,8 +18,8 @@ use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::protocol::{
-    AnnounceSpec, ApiErrorBody, DEFAULT_TTL_SECS, DiscoverResponse, DiscoveryEvent,
-    DiscoveryEventEnvelope, DiscoveryFilter, DiscoveredNode, NodeAnnouncement,
+    AddressSelection, AnnounceSpec, ApiErrorBody, DEFAULT_TTL_SECS, DiscoverResponse,
+    DiscoveryEvent, DiscoveryEventEnvelope, DiscoveryFilter, DiscoveredNode, NodeAnnouncement,
 };
 
 pub type WatchStream = Pin<Box<dyn Stream<Item = Result<DiscoveryEventEnvelope, ClientError>> + Send>>;
@@ -31,6 +31,7 @@ pub struct ClientConfig {
     pub timeout: Duration,
     pub reconnect_backoff_min: Duration,
     pub reconnect_backoff_max: Duration,
+    pub default_address_selection: AddressSelection,
 }
 
 impl Default for ClientConfig {
@@ -41,6 +42,7 @@ impl Default for ClientConfig {
             timeout: Duration::from_secs(10),
             reconnect_backoff_min: Duration::from_millis(500),
             reconnect_backoff_max: Duration::from_secs(15),
+            default_address_selection: AddressSelection::default(),
         }
     }
 }
@@ -73,6 +75,10 @@ pub enum ClientError {
 }
 
 impl LndClient {
+    pub fn builder(server_url: impl Into<String>) -> ClientBuilder {
+        ClientBuilder::new(server_url)
+    }
+
     pub fn new(config: ClientConfig) -> Result<Self, ClientError> {
         let mut headers = reqwest::header::HeaderMap::new();
         if !config.bearer_token.is_empty() {
@@ -204,7 +210,7 @@ impl LndClient {
                         client.config.reconnect_backoff_max,
                         attempt,
                     )}) => {
-                        let lan_addrs = resolve_lan_addrs_with_port(spec.lan_addrs.clone(), spec.port)?;
+                        let lan_addrs = client.resolve_announce_addrs(&spec)?;
                         let announcement = spec.clone().into_announcement(lan_addrs);
                         match client.announce_once(announcement).await {
                             Ok(_) => {
@@ -254,6 +260,10 @@ impl LndClient {
         self.config.server_url.trim_end_matches('/').to_string()
     }
 
+    pub fn resolve_announce_addrs(&self, spec: &AnnounceSpec) -> Result<Vec<SocketAddr>, ClientError> {
+        resolve_announce_addrs_with_defaults(spec, &self.config.default_address_selection)
+    }
+
     fn build_list_request(&self, filter: &DiscoveryFilter) -> reqwest::RequestBuilder {
         let mut request = self
             .http
@@ -269,6 +279,65 @@ impl LndClient {
                 .map(|tag| ("tag", tag.as_str()))
                 .collect::<Vec<_>>(),
         )
+    }
+}
+
+pub struct ClientBuilder {
+    config: ClientConfig,
+}
+
+impl ClientBuilder {
+    pub fn new(server_url: impl Into<String>) -> Self {
+        let config = ClientConfig {
+            server_url: server_url.into(),
+            ..ClientConfig::default()
+        };
+        Self { config }
+    }
+
+    pub fn bearer_token(mut self, bearer_token: impl Into<String>) -> Self {
+        self.config.bearer_token = bearer_token.into();
+        self
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = timeout;
+        self
+    }
+
+    pub fn reconnect_backoff(mut self, min: Duration, max: Duration) -> Self {
+        self.config.reconnect_backoff_min = min;
+        self.config.reconnect_backoff_max = max;
+        self
+    }
+
+    pub fn include_loopback(mut self, include_loopback: bool) -> Self {
+        self.config.default_address_selection.include_loopback = include_loopback;
+        self
+    }
+
+    pub fn include_ipv6(mut self, include_ipv6: bool) -> Self {
+        self.config.default_address_selection.include_ipv6 = include_ipv6;
+        self
+    }
+
+    pub fn enable_interface(mut self, interface_name: impl Into<String>) -> Self {
+        self.config.default_address_selection.interface_allowlist.push(interface_name.into());
+        self
+    }
+
+    pub fn disable_interface(mut self, interface_name: impl Into<String>) -> Self {
+        self.config.default_address_selection.interface_denylist.push(interface_name.into());
+        self
+    }
+
+    pub fn address_selection(mut self, address_selection: AddressSelection) -> Self {
+        self.config.default_address_selection = address_selection;
+        self
+    }
+
+    pub fn build(self) -> Result<LndClient, ClientError> {
+        LndClient::new(self.config)
     }
 }
 
@@ -319,22 +388,50 @@ pub fn resolve_lan_addrs_with_port(
     explicit: Option<Vec<SocketAddr>>,
     port: u16,
 ) -> Result<Vec<SocketAddr>, ClientError> {
+    resolve_lan_addrs_with_port_and_selection(explicit, port, &AddressSelection::default())
+}
+
+pub fn resolve_lan_addrs_with_port_and_selection(
+    explicit: Option<Vec<SocketAddr>>,
+    port: u16,
+    selection: &AddressSelection,
+) -> Result<Vec<SocketAddr>, ClientError> {
     if let Some(addrs) = explicit {
         return Ok(dedupe_socket_addrs(addrs));
     }
     let mut addrs = Vec::new();
     for iface in get_if_addrs()? {
-        if iface.is_loopback() {
+        if !selection.allows_interface(&iface.name) {
             continue;
         }
+        let is_loopback = iface.is_loopback();
         match iface.addr {
             IfAddr::V4(v4) => {
-                if is_private_ip(IpAddr::V4(v4.ip)) {
+                if selection.allows_ip(IpAddr::V4(v4.ip), is_loopback) {
                     addrs.push(SocketAddr::new(IpAddr::V4(v4.ip), port));
                 }
             }
-            IfAddr::V6(_) => {}
+            IfAddr::V6(v6) => {
+                if selection.allows_ip(IpAddr::V6(v6.ip), is_loopback) {
+                    addrs.push(SocketAddr::new(IpAddr::V6(v6.ip), port));
+                }
+            }
         }
+    }
+    Ok(dedupe_socket_addrs(addrs))
+}
+
+pub fn resolve_announce_addrs_with_defaults(
+    spec: &AnnounceSpec,
+    default_selection: &AddressSelection,
+) -> Result<Vec<SocketAddr>, ClientError> {
+    let mut addrs = spec.lan_addrs.clone().unwrap_or_default();
+    if spec.auto_lan_addrs {
+        addrs.extend(resolve_lan_addrs_with_port_and_selection(
+            None,
+            spec.port,
+            &merge_address_selection(default_selection, spec.address_selection.as_ref()),
+        )?);
     }
     Ok(dedupe_socket_addrs(addrs))
 }
@@ -354,13 +451,6 @@ fn dedupe_socket_addrs(mut addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
     addrs.sort();
     addrs.dedup();
     addrs
-}
-
-fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => ipv4.is_private(),
-        IpAddr::V6(_) => false,
-    }
 }
 
 async fn parse_json_response<T: serde::de::DeserializeOwned>(
@@ -393,6 +483,27 @@ fn with_jitter(duration: Duration) -> Duration {
     }
     let jitter = rand::rng().random_range(0..=(millis / 5).max(1));
     Duration::from_millis(millis.saturating_add(jitter))
+}
+
+fn merge_address_selection(
+    defaults: &AddressSelection,
+    override_selection: Option<&AddressSelection>,
+) -> AddressSelection {
+    let Some(override_selection) = override_selection else {
+        return defaults.clone();
+    };
+    let mut merged = defaults.clone();
+    merged.include_private_ipv4 = override_selection.include_private_ipv4;
+    merged.include_loopback = override_selection.include_loopback;
+    merged.include_link_local_ipv4 = override_selection.include_link_local_ipv4;
+    merged.include_ipv6 = override_selection.include_ipv6;
+    if !override_selection.interface_allowlist.is_empty() {
+        merged.interface_allowlist = override_selection.interface_allowlist.clone();
+    }
+    if !override_selection.interface_denylist.is_empty() {
+        merged.interface_denylist = override_selection.interface_denylist.clone();
+    }
+    merged
 }
 
 pub fn parse_socket_addrs(values: &[String], port: u16) -> anyhow::Result<Vec<SocketAddr>> {
@@ -448,5 +559,21 @@ mod tests {
             assert!(delay >= Duration::from_millis(100));
             assert!(delay <= Duration::from_secs(2));
         }
+    }
+
+    #[test]
+    fn loopback_can_be_enabled_in_selection() {
+        let selection = AddressSelection::new().with_loopback(true);
+        let addrs = resolve_lan_addrs_with_port_and_selection(None, 8080, &selection).unwrap();
+        assert!(addrs.iter().any(|addr| addr.ip().is_loopback()) || !addrs.is_empty());
+    }
+
+    #[test]
+    fn announce_spec_can_disable_auto_addrs() {
+        let spec = AnnounceSpec::new("net-a", "node-a", "svc", "node-a", 8080)
+            .with_auto_lan_addrs(false)
+            .with_lan_addrs(["127.0.0.1:8080".parse().unwrap()]);
+        let addrs = resolve_announce_addrs_with_defaults(&spec, &AddressSelection::default()).unwrap();
+        assert_eq!(addrs, vec!["127.0.0.1:8080".parse().unwrap()]);
     }
 }

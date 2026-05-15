@@ -81,6 +81,8 @@ pub fn sample_spec(node_id: &str, ttl_secs: u64) -> AnnounceSpec {
         display_name: format!("node-{node_id}"),
         port: 8080,
         lan_addrs: Some(vec!["192.168.1.10:8080".parse().unwrap()]),
+        auto_lan_addrs: false,
+        address_selection: None,
         tags: vec!["alpha".to_string()],
         metadata: [("role".to_string(), "api".to_string())].into_iter().collect(),
         ttl_secs,

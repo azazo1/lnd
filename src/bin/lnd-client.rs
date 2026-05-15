@@ -4,8 +4,8 @@ use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use futures::StreamExt;
 use lnd::client::{
-    ClientConfig, LndClient, default_display_name, default_node_id_path, load_or_create_node_id,
-    metadata_from_pairs, parse_socket_addrs, resolve_lan_addrs_with_port,
+    LndClient, default_display_name, default_node_id_path, load_or_create_node_id,
+    metadata_from_pairs, parse_socket_addrs,
 };
 use lnd::protocol::{AnnounceSpec, DiscoveryFilter};
 use lnd::tracing_utils::init_tracing;
@@ -17,6 +17,14 @@ struct Cli {
     server_url: String,
     #[arg(long, env = "LND_BEARER_TOKEN", default_value = "")]
     bearer_token: String,
+    #[arg(long, default_value_t = false)]
+    include_loopback: bool,
+    #[arg(long, default_value_t = false)]
+    include_ipv6: bool,
+    #[arg(long = "enable-interface")]
+    enable_interfaces: Vec<String>,
+    #[arg(long = "disable-interface")]
+    disable_interfaces: Vec<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -60,6 +68,16 @@ struct AnnounceArgs {
     metadata: Vec<String>,
     #[arg(long = "lan-addr")]
     lan_addrs: Vec<String>,
+    #[arg(long, default_value_t = true)]
+    auto_lan_addrs: bool,
+    #[arg(long, default_value_t = false)]
+    include_loopback: bool,
+    #[arg(long, default_value_t = false)]
+    include_ipv6: bool,
+    #[arg(long = "enable-interface")]
+    enable_interfaces: Vec<String>,
+    #[arg(long = "disable-interface")]
+    disable_interfaces: Vec<String>,
     #[arg(long, default_value_t = 30)]
     ttl_secs: u64,
 }
@@ -68,11 +86,17 @@ struct AnnounceArgs {
 async fn main() -> anyhow::Result<()> {
     init_tracing();
     let cli = Cli::parse();
-    let client = LndClient::new(ClientConfig {
-        server_url: cli.server_url,
-        bearer_token: cli.bearer_token,
-        ..ClientConfig::default()
-    })?;
+    let mut builder = LndClient::builder(cli.server_url)
+        .bearer_token(cli.bearer_token)
+        .include_loopback(cli.include_loopback)
+        .include_ipv6(cli.include_ipv6);
+    for interface_name in cli.enable_interfaces {
+        builder = builder.enable_interface(interface_name);
+    }
+    for interface_name in cli.disable_interfaces {
+        builder = builder.disable_interface(interface_name);
+    }
+    let client = builder.build()?;
 
     match cli.command {
         Command::Announce(args) => announce(&client, args).await?,
@@ -105,11 +129,27 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
         display_name: args.display_name,
         port: args.port,
         lan_addrs: explicit_addrs,
+        auto_lan_addrs: args.auto_lan_addrs,
+        address_selection: None,
         tags: args.tags,
         metadata: metadata_from_pairs(&args.metadata)?,
         ttl_secs: args.ttl_secs,
     };
-    let initial_addrs = resolve_lan_addrs_with_port(spec.lan_addrs.clone(), spec.port)?;
+    let mut spec = if args.include_loopback {
+        spec.include_loopback(true)
+    } else {
+        spec
+    };
+    if args.include_ipv6 {
+        spec = spec.include_ipv6(true);
+    }
+    for interface_name in args.enable_interfaces {
+        spec = spec.with_interface(interface_name);
+    }
+    for interface_name in args.disable_interfaces {
+        spec = spec.without_interface(interface_name);
+    }
+    let initial_addrs = client.resolve_announce_addrs(&spec)?;
     let node = client.announce_once(spec.clone().into_announcement(initial_addrs)).await?;
     println!("{}", serde_json::to_string(&node)?);
 
