@@ -624,7 +624,7 @@ C++ 侧提供 RAII 包装头文件 [bindings/cpp/lnd.hpp](/Users/azazo1/pjs/rust
 
 示例见 [examples/ffi/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/ffi/cpp/discover.cpp).
 
-### C#
+### C Sharp
 
 仓库中暂未放 C# 高层绑定. 如果后续要支持 .NET, 更合理的方向也是先做一层对象化封装, 而不是让业务代码直接写 `DllImport` 调裸 C ABI.
 
