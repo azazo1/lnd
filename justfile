@@ -88,7 +88,7 @@ example-rust name:
 
 # Run the Go SDK example.
 example-go:
-    tmpdir="$(mktemp -d /private/tmp/lnd-go-example.XXXXXX)" && \
+    tmpdir="$(mktemp -d -t lnd-go-example.XXXXXX)" && \
     trap 'rm -rf "$tmpdir"' EXIT && \
     cp examples/sdk/go/main.go "$tmpdir/main.go" && \
     printf '%s\n' \
