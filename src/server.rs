@@ -27,6 +27,15 @@ use crate::protocol::{
     LeaseInfo, NodeAnnouncement,
 };
 
+/// 内置 server 配置.
+///
+/// 使用场景:
+/// - 直接传给 [`run_server`].
+/// - 传给 [`build_router`] 以嵌入现有 Axum 应用.
+///
+/// 注意事项:
+/// - `bearer_token` 为空时表示不启用鉴权.
+/// - `event_buffer_capacity` 越小, watch replay 可恢复窗口越短.
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub listen_addr: SocketAddr,
@@ -46,6 +55,10 @@ impl Default for ServerConfig {
     }
 }
 
+/// `config.toml` 文件对应的可选配置结构.
+///
+/// 功能简介:
+/// - 适合与命令行参数或环境变量合并.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ServerConfigFile {
     pub listen_addr: Option<SocketAddr>,
@@ -55,6 +68,11 @@ pub struct ServerConfigFile {
 }
 
 impl ServerConfig {
+    /// 将文件配置合并到当前配置上.
+    ///
+    /// 合并规则:
+    /// - 文件中的 `Some(...)` 字段覆盖当前值.
+    /// - 文件中的 `None` 字段保留当前值.
     pub fn merge(self, file: ServerConfigFile) -> Self {
         Self {
             listen_addr: file.listen_addr.unwrap_or(self.listen_addr),
@@ -66,6 +84,16 @@ impl ServerConfig {
         }
     }
 
+    /// 从 TOML 文件异步读取配置.
+    ///
+    /// 参数:
+    /// - `path`: TOML 文件路径.
+    ///
+    /// 返回值:
+    /// - 一个只包含文件中显式字段的 [`ServerConfigFile`].
+    ///
+    /// 异常:
+    /// - 当文件读取或 TOML 解析失败时返回 `anyhow::Error`.
     pub async fn from_toml_file(path: impl AsRef<FsPath>) -> anyhow::Result<ServerConfigFile> {
         let path = path.as_ref();
         let contents = tokio::fs::read_to_string(path)
@@ -75,6 +103,12 @@ impl ServerConfig {
     }
 }
 
+/// 内存注册表实现.
+///
+/// 功能简介:
+/// - 保存当前活跃节点和最近事件缓冲区.
+/// - 为 `list` 和 `watch` 提供数据来源.
+/// - 适用于单进程单实例 v1 server.
 #[derive(Debug, Clone)]
 pub struct InMemoryRegistry {
     inner: Arc<RegistryInner>,
@@ -102,6 +136,11 @@ struct NodeEntry {
     revision: u64,
 }
 
+/// 某次快照查询的结果.
+///
+/// 字段说明:
+/// - `nodes`: 当前匹配节点.
+/// - `cursor`: 与这份快照对应的最新 revision.
 #[derive(Debug, Clone)]
 pub struct RegistrySnapshot {
     pub nodes: Vec<DiscoveredNode>,
@@ -121,6 +160,11 @@ struct AppState {
     registry: InMemoryRegistry,
 }
 
+/// 注册表错误类型.
+///
+/// 常见情况:
+/// - `InvalidTtl`: 上报 TTL 非法.
+/// - `CursorTooOld`: watch 恢复所用 cursor 已超出事件缓冲窗口.
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
     #[error("invalid ttl")]
@@ -156,6 +200,16 @@ impl IntoResponse for AppError {
 }
 
 impl InMemoryRegistry {
+    /// 创建一个新的内存注册表.
+    ///
+    /// 参数:
+    /// - `event_capacity`: 事件环形缓冲大小.
+    ///
+    /// 返回值:
+    /// - 一个空注册表.
+    ///
+    /// 注意事项:
+    /// - broadcast channel 的最小容量会被钳制到 `16`.
     pub fn new(event_capacity: usize) -> Self {
         let (tx, _) = broadcast::channel(event_capacity.max(16));
         Self {
@@ -171,6 +225,20 @@ impl InMemoryRegistry {
         }
     }
 
+    /// 插入或更新一个节点公告.
+    ///
+    /// 参数:
+    /// - `announcement`: 已经完成地址解析的最终公告.
+    ///
+    /// 返回值:
+    /// - 最新的 [`DiscoveredNode`], 包含新的租约信息和 revision.
+    ///
+    /// 异常:
+    /// - 返回 [`RegistryError::InvalidTtl`] 当 `ttl_secs == 0`.
+    ///
+    /// 注意事项:
+    /// - 本方法会去重地址和 tag.
+    /// - 成功后会向 replay 缓冲区和 broadcast 通道写入 `upsert` 事件.
     #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = %announcement.network_id))]
     pub fn upsert(&self, announcement: NodeAnnouncement) -> Result<DiscoveredNode, RegistryError> {
         if announcement.ttl_secs == 0 {
@@ -202,6 +270,13 @@ impl InMemoryRegistry {
         Ok(node)
     }
 
+    /// 扫描并删除所有过期节点.
+    ///
+    /// 返回值:
+    /// - 本次清理删除的节点数量.
+    ///
+    /// 注意事项:
+    /// - 每个被删除节点都会产生一个 `remove` 事件.
     pub fn remove_expired(&self) -> usize {
         let now = now_unix_ms();
         let mut removed = Vec::new();
@@ -232,6 +307,7 @@ impl InMemoryRegistry {
         removed.len()
     }
 
+    /// 按过滤条件获取当前快照.
     pub fn list(&self, filter: &DiscoveryFilter) -> RegistrySnapshot {
         let state = self.inner.state.read();
         let nodes = state
@@ -246,6 +322,17 @@ impl InMemoryRegistry {
         }
     }
 
+    /// 从给定 cursor 之后回放事件.
+    ///
+    /// 参数:
+    /// - `cursor`: 调用方上次处理到的 revision.
+    /// - `filter`: 事件过滤条件.
+    ///
+    /// 返回值:
+    /// - 仅包含大于 `cursor` 且匹配过滤器的事件列表.
+    ///
+    /// 异常:
+    /// - 返回 [`RegistryError::CursorTooOld`] 当所需事件已不在缓冲区中.
     pub fn replay_since(
         &self,
         cursor: u64,
@@ -279,6 +366,10 @@ impl InMemoryRegistry {
             .collect())
     }
 
+    /// 订阅实时事件广播.
+    ///
+    /// 返回值:
+    /// - 一个 `broadcast::Receiver`, 用于接收后续 `upsert` 和 `remove` 事件.
     pub fn subscribe(&self) -> broadcast::Receiver<DiscoveryEventEnvelope> {
         self.inner.tx.subscribe()
     }
@@ -319,6 +410,20 @@ impl NodeEntry {
     }
 }
 
+/// 构建可嵌入的 Axum 路由.
+///
+/// 暴露接口:
+/// - `GET /healthz`
+/// - `GET /v1/nodes`
+/// - `PUT /v1/nodes/{node_id}`
+/// - `GET /v1/watch`
+///
+/// 参数:
+/// - `config`: server 行为配置.
+/// - `registry`: 事件和节点状态后端.
+///
+/// 返回值:
+/// - 可直接挂载到 Axum 应用中的 [`Router`].
 pub fn build_router(config: ServerConfig, registry: InMemoryRegistry) -> Router {
     let state = AppState { config, registry };
     Router::new()
@@ -330,6 +435,20 @@ pub fn build_router(config: ServerConfig, registry: InMemoryRegistry) -> Router 
         .layer(TraceLayer::new_for_http())
 }
 
+/// 启动内置 HTTP server.
+///
+/// 参数:
+/// - `config`: 监听地址和运行配置.
+/// - `registry`: 内存注册表.
+///
+/// 返回值:
+/// - server 正常退出时返回 `Ok(())`.
+///
+/// 异常:
+/// - 当端口绑定失败或 Axum 服务运行失败时返回 `anyhow::Error`.
+///
+/// 注意事项:
+/// - 该函数内部会启动一个后台清理任务, 每秒清理一次过期租约.
 #[instrument(skip(config, registry))]
 pub async fn run_server(config: ServerConfig, registry: InMemoryRegistry) -> anyhow::Result<()> {
     let app = build_router(config.clone(), registry.clone());

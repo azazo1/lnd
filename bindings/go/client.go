@@ -19,30 +19,66 @@ import (
 )
 
 const (
+	// DefaultTTLSeconds is the default lease duration used by NewAnnounceSpec.
+	//
+	// The background announce loop renews at about one third of this value.
+	// Increase it to reduce server traffic, or lower it to remove stale peers sooner.
 	DefaultTTLSeconds          uint64 = 30
+	// DefaultSSEKeepaliveSeconds is the keepalive cadence emitted by the server watch stream.
+	//
+	// Watch clients do not need to send heartbeats themselves, but long running
+	// reverse proxies should allow idle periods at least this long.
 	DefaultSSEKeepaliveSeconds uint64 = 15
 )
 
+// DiscoveryFilter describes which peers should be listed or watched.
+//
+// NetworkID is required. Service and Tags narrow the result set to peers that
+// belong to the same logical discovery domain.
+//
+// Example:
+//
+//	filter := lnd.NewDiscoveryFilter("office-net").
+//		WithService("_demo._tcp").
+//		AddTag("printer")
 type DiscoveryFilter struct {
 	NetworkID string
 	Service   string
 	Tags      []string
 }
 
+// NewDiscoveryFilter creates a minimal discovery filter.
+//
+// networkID identifies the logical discovery domain handled by the server.
+// The returned filter can be reused and extended with WithService and AddTag.
 func NewDiscoveryFilter(networkID string) DiscoveryFilter {
 	return DiscoveryFilter{NetworkID: networkID}
 }
 
+// WithService sets the required service name and returns the updated copy.
 func (f DiscoveryFilter) WithService(service string) DiscoveryFilter {
 	f.Service = service
 	return f
 }
 
+// AddTag appends one required tag filter and returns the updated copy.
+//
+// A peer must contain every tag added to the filter to match.
 func (f DiscoveryFilter) AddTag(tag string) DiscoveryFilter {
 	f.Tags = append(f.Tags, tag)
 	return f
 }
 
+// AnnounceSpec describes one node registration payload.
+//
+// The spec can contain explicit LAN addresses, or it can ask the client to
+// resolve addresses automatically from local interfaces.
+//
+// Example:
+//
+//	spec := lnd.NewAnnounceSpec("office-net", "node-1", "_demo._tcp", "Demo Node", 8080).
+//		AddTag("blue").
+//		InsertMetadata("role", "api")
 type AnnounceSpec struct {
 	NetworkID            string            `json:"network_id"`
 	NodeID               string            `json:"node_id"`
@@ -57,6 +93,14 @@ type AnnounceSpec struct {
 	AddressSelection     *AddressSelection `json:"address_selection,omitempty"`
 }
 
+// NewAnnounceSpec creates an announce specification with sensible defaults.
+//
+// networkID selects the discovery domain, nodeID must remain stable across
+// restarts, service identifies the protocol family, displayName is a human
+// readable label, and port is the LAN service port advertised to peers.
+//
+// The returned spec enables automatic LAN address discovery and uses
+// DefaultTTLSeconds unless overridden.
 func NewAnnounceSpec(networkID, nodeID, service, displayName string, port uint16) AnnounceSpec {
 	return AnnounceSpec{
 		NetworkID:    networkID,
@@ -69,16 +113,25 @@ func NewAnnounceSpec(networkID, nodeID, service, displayName string, port uint16
 	}
 }
 
+// AddLanAddr appends one explicit host:port address and returns the updated copy.
+//
+// Keep AutoLanAddrs enabled if you want explicit addresses to be merged with
+// automatically discovered interfaces. Disable AutoLanAddrs to advertise only
+// the addresses provided here.
 func (s AnnounceSpec) AddLanAddr(addr string) AnnounceSpec {
 	s.LanAddrs = append(s.LanAddrs, addr)
 	return s
 }
 
+// AddTag appends one announce tag and returns the updated copy.
 func (s AnnounceSpec) AddTag(tag string) AnnounceSpec {
 	s.Tags = append(s.Tags, tag)
 	return s
 }
 
+// InsertMetadata inserts one metadata key/value pair and returns the updated copy.
+//
+// Later calls with the same key replace the previous value.
 func (s AnnounceSpec) InsertMetadata(key, value string) AnnounceSpec {
 	if s.Metadata == nil {
 		s.Metadata = map[string]string{}
@@ -87,11 +140,20 @@ func (s AnnounceSpec) InsertMetadata(key, value string) AnnounceSpec {
 	return s
 }
 
+// WithAddressSelection overrides automatic address selection for this spec.
+//
+// This per spec override takes precedence over the client default policy when
+// automatic LAN address discovery is enabled.
 func (s AnnounceSpec) WithAddressSelection(selection AddressSelection) AnnounceSpec {
 	s.AddressSelection = &selection
 	return s
 }
 
+// AddressSelection controls which local interfaces and IP families may be
+// included in automatic LAN address discovery.
+//
+// The default policy only includes private IPv4 addresses. Loopback, IPv6 and
+// link local IPv4 must be enabled explicitly.
 type AddressSelection struct {
 	IncludePrivateIPv4   bool     `json:"include_private_ipv4"`
 	IncludeLoopback      bool     `json:"include_loopback"`
@@ -101,42 +163,55 @@ type AddressSelection struct {
 	InterfaceDenylist    []string `json:"interface_denylist,omitempty"`
 }
 
+// DefaultAddressSelection returns the default automatic address selection policy.
+//
+// By default only private IPv4 addresses are included. The returned value can
+// be refined with the WithXxx and Interface methods.
 func DefaultAddressSelection() AddressSelection {
 	return AddressSelection{
 		IncludePrivateIPv4: true,
 	}
 }
 
+// WithLoopback enables or disables loopback addresses in automatic selection.
 func (s AddressSelection) WithLoopback(on bool) AddressSelection {
 	s.IncludeLoopback = on
 	return s
 }
 
+// WithIPv6 enables or disables IPv6 addresses in automatic selection.
 func (s AddressSelection) WithIPv6(on bool) AddressSelection {
 	s.IncludeIPv6 = on
 	return s
 }
 
+// WithPrivateIPv4 enables or disables private IPv4 addresses in automatic selection.
 func (s AddressSelection) WithPrivateIPv4(on bool) AddressSelection {
 	s.IncludePrivateIPv4 = on
 	return s
 }
 
+// WithLinkLocalIPv4 enables or disables link-local IPv4 addresses in automatic selection.
 func (s AddressSelection) WithLinkLocalIPv4(on bool) AddressSelection {
 	s.IncludeLinkLocalIPv4 = on
 	return s
 }
 
+// EnableInterface appends one interface allowlist item.
 func (s AddressSelection) EnableInterface(name string) AddressSelection {
 	s.InterfaceAllowlist = append(s.InterfaceAllowlist, name)
 	return s
 }
 
+// DisableInterface appends one interface denylist item.
 func (s AddressSelection) DisableInterface(name string) AddressSelection {
 	s.InterfaceDenylist = append(s.InterfaceDenylist, name)
 	return s
 }
 
+// LeaseInfo contains server side lease state attached to a discovered node.
+//
+// Revision increases whenever the server updates this node record.
 type LeaseInfo struct {
 	Revision        uint64 `json:"revision"`
 	TTLSeconds      uint64 `json:"ttl_secs"`
@@ -144,6 +219,7 @@ type LeaseInfo struct {
 	LastSeenUnixMS  uint64 `json:"last_seen_unix_ms"`
 }
 
+// DiscoveredNode is the canonical peer record returned by list and watch calls.
 type DiscoveredNode struct {
 	NetworkID   string            `json:"network_id"`
 	NodeID      string            `json:"node_id"`
@@ -156,12 +232,16 @@ type DiscoveredNode struct {
 	Lease       LeaseInfo         `json:"lease"`
 }
 
+// DiscoveryEvent describes one watch stream event.
+//
+// Type is one of snapshot, upsert, remove, reset or keepalive.
 type DiscoveryEvent struct {
 	Type  string            `json:"type"`
 	Nodes []DiscoveredNode  `json:"nodes,omitempty"`
 	Node  *DiscoveredNode   `json:"node,omitempty"`
 }
 
+// DiscoveryEventEnvelope wraps a watch event with its latest resume cursor.
 type DiscoveryEventEnvelope struct {
 	Cursor *uint64        `json:"cursor"`
 	Event  DiscoveryEvent `json:"event"`
@@ -176,6 +256,46 @@ type apiError struct {
 	Error string `json:"error"`
 }
 
+type backoffConfig struct {
+	min time.Duration
+	max time.Duration
+}
+
+// ClientOption customizes a Client created by NewClient.
+type ClientOption func(*Client)
+
+// WithTimeout sets the HTTP request timeout.
+//
+// Use this when list or announce requests may traverse slower proxies or links.
+func WithTimeout(timeout time.Duration) ClientOption {
+	return func(c *Client) {
+		c.http.Timeout = timeout
+	}
+}
+
+// WithReconnectBackoff sets the reconnect backoff range.
+//
+// min and max are used by the background watch and announce loops after
+// transient failures.
+func WithReconnectBackoff(min, max time.Duration) ClientOption {
+	return func(c *Client) {
+		c.backoff = backoffConfig{min: min, max: max}
+	}
+}
+
+// Client is the high level Go SDK entry point for discovery, announce and watch.
+//
+// The client is safe to reuse across multiple operations. Default automatic
+// address selection can be tuned with the SetIncludeXxx and Interface methods.
+//
+// Example:
+//
+//	client := lnd.NewClient("https://registry.example.com", "secret-token")
+//	nodes, err := client.Discover(context.Background(), lnd.NewDiscoveryFilter("office-net"))
+//	if err != nil {
+//		return err
+//	}
+//	_ = nodes
 type Client struct {
 	baseURL  string
 	token    string
@@ -184,25 +304,13 @@ type Client struct {
 	address  AddressSelection
 }
 
-type backoffConfig struct {
-	min time.Duration
-	max time.Duration
-}
-
-type ClientOption func(*Client)
-
-func WithTimeout(timeout time.Duration) ClientOption {
-	return func(c *Client) {
-		c.http.Timeout = timeout
-	}
-}
-
-func WithReconnectBackoff(min, max time.Duration) ClientOption {
-	return func(c *Client) {
-		c.backoff = backoffConfig{min: min, max: max}
-	}
-}
-
+// NewClient creates a reusable Go SDK client.
+//
+// baseURL must point at an lnd server root, for example
+// https://registry.example.com. bearerToken is optional and may be empty.
+//
+// The client does not contact the server during construction. Network and
+// validation errors are returned by later API calls.
 func NewClient(baseURL, bearerToken string, opts ...ClientOption) *Client {
 	client := &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -222,6 +330,10 @@ func NewClient(baseURL, bearerToken string, opts ...ClientOption) *Client {
 	return client
 }
 
+// Discover performs one HTTP list request and returns the matching peers.
+//
+// The method returns a slice of discovered nodes or an error when the request
+// fails, the server rejects the filter, or the JSON response is invalid.
 func (c *Client) Discover(ctx context.Context, filter DiscoveryFilter) ([]DiscoveredNode, error) {
 	response, err := c.doDiscover(ctx, filter)
 	if err != nil {
@@ -230,6 +342,11 @@ func (c *Client) Discover(ctx context.Context, filter DiscoveryFilter) ([]Discov
 	return response.Nodes, nil
 }
 
+// AnnounceOnce resolves addresses and performs one registration request.
+//
+// The returned node is the server normalized record after deduplication and
+// lease metadata attachment. Errors include local address resolution failures,
+// HTTP transport failures, authentication failures and invalid server JSON.
 func (c *Client) AnnounceOnce(ctx context.Context, spec AnnounceSpec) (DiscoveredNode, error) {
 	var node DiscoveredNode
 	payload, err := c.buildAnnouncement(spec)
@@ -274,12 +391,18 @@ type announcePayload struct {
 	TTLSeconds  uint64            `json:"ttl_secs"`
 }
 
+// AnnounceHandle manages a background announce loop started by Client.Announce.
+//
+// Call Close to stop renewals and wait for the goroutine to exit.
 type AnnounceHandle struct {
 	cancel context.CancelFunc
 	done   chan error
 	once   sync.Once
 }
 
+// Close stops the background announce loop and waits for it to exit.
+//
+// It returns the final loop error, or nil when the loop stopped cleanly.
 func (h *AnnounceHandle) Close() error {
 	h.once.Do(func() {
 		h.cancel()
@@ -287,6 +410,13 @@ func (h *AnnounceHandle) Close() error {
 	return <-h.done
 }
 
+// Announce starts a background announce loop.
+//
+// The loop keeps renewing the lease roughly every TTLSeconds/3 with jitter,
+// and it reconnects with exponential backoff after transient failures.
+//
+// Call Close on the returned handle to stop it. The start itself is async, so
+// initial errors are surfaced later by AnnounceHandle.Close.
 func (c *Client) Announce(ctx context.Context, spec AnnounceSpec) *AnnounceHandle {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
@@ -323,12 +453,18 @@ func (c *Client) announceLoop(ctx context.Context, spec AnnounceSpec) error {
 	}
 }
 
+// WatchHandle manages a background watch loop started by Client.Watch.
+//
+// Call Close to stop reconnection attempts and wait for the goroutine to exit.
 type WatchHandle struct {
 	cancel context.CancelFunc
 	done   chan error
 	once   sync.Once
 }
 
+// Close stops the background watch loop and waits for it to exit.
+//
+// It returns the final loop error, or nil when the watch stopped cleanly.
 func (h *WatchHandle) Close() error {
 	h.once.Do(func() {
 		h.cancel()
@@ -336,6 +472,14 @@ func (h *WatchHandle) Close() error {
 	return <-h.done
 }
 
+// Watch starts a reconnecting watch loop.
+//
+// callback receives parsed SSE events, including reset events and follow up
+// snapshot resyncs. The loop automatically resumes from the latest cursor when
+// the server supports replay.
+//
+// Call Close on the returned handle to stop the watch. As with Announce, later
+// stream setup errors are reported by WatchHandle.Close.
 func (c *Client) Watch(ctx context.Context, filter DiscoveryFilter, callback func(DiscoveryEventEnvelope)) *WatchHandle {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
@@ -592,52 +736,75 @@ func minUint32(a, b uint32) uint32 {
 	return b
 }
 
+// SetServerURL updates the server base URL for subsequent requests.
+//
+// The value should be the server root URL without a trailing API path.
 func (c *Client) SetServerURL(baseURL string) *Client {
 	c.baseURL = strings.TrimRight(baseURL, "/")
 	return c
 }
 
+// SetBearerToken updates the Bearer token for subsequent requests.
+//
+// Pass an empty string to disable Authorization headers.
 func (c *Client) SetBearerToken(token string) *Client {
 	c.token = token
 	return c
 }
 
+// SetIncludeLoopback updates the default automatic address selection policy.
+//
+// This affects later address resolution unless a spec level override is set.
 func (c *Client) SetIncludeLoopback(on bool) *Client {
 	c.address.IncludeLoopback = on
 	return c
 }
 
+// SetIncludeIPv6 updates the default automatic address selection policy.
 func (c *Client) SetIncludeIPv6(on bool) *Client {
 	c.address.IncludeIPv6 = on
 	return c
 }
 
+// SetIncludePrivateIPv4 updates the default automatic address selection policy.
 func (c *Client) SetIncludePrivateIPv4(on bool) *Client {
 	c.address.IncludePrivateIPv4 = on
 	return c
 }
 
+// SetIncludeLinkLocalIPv4 updates the default automatic address selection policy.
 func (c *Client) SetIncludeLinkLocalIPv4(on bool) *Client {
 	c.address.IncludeLinkLocalIPv4 = on
 	return c
 }
 
+// EnableInterface appends one interface allowlist item to the client default policy.
+//
+// When the allowlist is non empty, only listed interfaces are considered.
 func (c *Client) EnableInterface(name string) *Client {
 	c.address.InterfaceAllowlist = append(c.address.InterfaceAllowlist, name)
 	return c
 }
 
+// DisableInterface appends one interface denylist item to the client default policy.
+//
+// Deny rules override allow rules when an interface appears in both lists.
 func (c *Client) DisableInterface(name string) *Client {
 	c.address.InterfaceDenylist = append(c.address.InterfaceDenylist, name)
 	return c
 }
 
+// ClearInterfaceFilters clears the client default interface allowlist and denylist.
 func (c *Client) ClearInterfaceFilters() *Client {
 	c.address.InterfaceAllowlist = nil
 	c.address.InterfaceDenylist = nil
 	return c
 }
 
+// ResolveAnnounceAddrs resolves the final address list for one announce specification.
+//
+// The result merges explicit LanAddrs with automatically discovered addresses
+// when AutoLanAddrs is enabled, and removes duplicates before returning.
 func (c *Client) ResolveAnnounceAddrs(spec AnnounceSpec) ([]string, error) {
 	selection := c.mergedAddressSelection(spec.AddressSelection)
 	addrs := append([]string{}, spec.LanAddrs...)
@@ -706,6 +873,10 @@ func (s AddressSelection) allowsIP(ip net.IP, isLoopback bool) bool {
 	return s.IncludeIPv6 && !ip.IsUnspecified()
 }
 
+// ResolveLanAddrsWithSelection resolves local addresses using the given selection policy.
+//
+// port is attached to every returned host address. The function skips interfaces
+// whose addresses cannot be enumerated and deduplicates the final host:port list.
 func ResolveLanAddrsWithSelection(port uint16, selection AddressSelection) ([]string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -749,6 +920,9 @@ func ResolveLanAddrsWithSelection(port uint16, selection AddressSelection) ([]st
 	return addrs, nil
 }
 
+// ResolvePrivateIPv4Addrs resolves local private IPv4 addresses with the default policy.
+//
+// This helper is equivalent to ResolveLanAddrsWithSelection(port, DefaultAddressSelection()).
 func ResolvePrivateIPv4Addrs(port uint16) ([]string, error) {
 	return ResolveLanAddrsWithSelection(port, DefaultAddressSelection())
 }

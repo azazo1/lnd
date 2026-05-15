@@ -139,6 +139,12 @@ function createBindings(libraryPath = defaultLibraryPath()) {
   };
 }
 
+/**
+ * Error raised by the Node.js binding when the native library reports a failure.
+ *
+ * Typical causes include invalid arguments, failed HTTP requests, auth errors,
+ * or malformed JSON returned by the server.
+ */
 class LndError extends Error {}
 
 function checkPtr(bindings, ptr) {
@@ -162,18 +168,45 @@ function readJsonString(bindings, ptr) {
   }
 }
 
+/**
+ * Discovery filter used by discover and watch calls.
+ *
+ * @example
+ * const filter = new DiscoveryFilter("office-net")
+ *   .withService("_demo._tcp")
+ *   .addTag("printer");
+ */
 export class DiscoveryFilter {
+  /**
+   * Create a discovery filter for one logical network.
+   *
+   * @param {string} networkId Required discovery domain identifier.
+   */
   constructor(networkId) {
     this.networkId = networkId;
     this.service = null;
     this.tags = [];
   }
 
+  /**
+   * Restrict matches to one service name.
+   *
+   * @param {string} service Service identifier such as `_demo._tcp`.
+   * @returns {DiscoveryFilter} The same filter for chaining.
+   */
   withService(service) {
     this.service = service;
     return this;
   }
 
+  /**
+   * Add one required tag to the filter.
+   *
+   * A node must contain every tag added here to match.
+   *
+   * @param {string} tag Required tag value.
+   * @returns {DiscoveryFilter} The same filter for chaining.
+   */
   addTag(tag) {
     this.tags.push(tag);
     return this;
@@ -196,7 +229,27 @@ export class DiscoveryFilter {
   }
 }
 
+/**
+ * Announce specification used by announceOnce, announce and resolveAnnounceAddrs.
+ *
+ * The object can mix explicit LAN addresses with automatic interface based
+ * address discovery.
+ *
+ * @example
+ * const spec = new AnnounceSpec("office-net", "node-1", "_demo._tcp", "Demo Node", 8080)
+ *   .addTag("blue")
+ *   .insertMetadata("role", "api");
+ */
 export class AnnounceSpec {
+  /**
+   * Create a node registration spec.
+   *
+   * @param {string} networkId Logical discovery domain.
+   * @param {string} nodeId Stable node identifier.
+   * @param {string} service Service identifier such as `_demo._tcp`.
+   * @param {string} displayName Human readable label.
+   * @param {number} port LAN service port peers should connect to.
+   */
   constructor(networkId, nodeId, service, displayName, port) {
     this.networkId = networkId;
     this.nodeId = nodeId;
@@ -216,26 +269,60 @@ export class AnnounceSpec {
     this.interfaceDenylist = [];
   }
 
+  /**
+   * Append one explicit LAN host:port address.
+   *
+   * Keep `autoLanAddrs` enabled to merge these values with automatically
+   * discovered interface addresses.
+   *
+   * @param {string} addr Address in `host:port` form.
+   * @returns {AnnounceSpec} The same spec for chaining.
+   */
   addLanAddr(addr) {
     this.lanAddrs.push(addr);
     return this;
   }
 
+  /**
+   * Append one tag to the announced node.
+   *
+   * @param {string} tag Tag value to advertise.
+   * @returns {AnnounceSpec} The same spec for chaining.
+   */
   addTag(tag) {
     this.tags.push(tag);
     return this;
   }
 
+  /**
+   * Add or replace one metadata entry.
+   *
+   * @param {string} key Metadata key.
+   * @param {string} value Metadata value.
+   * @returns {AnnounceSpec} The same spec for chaining.
+   */
   insertMetadata(key, value) {
     this.metadata[key] = value;
     return this;
   }
 
+  /**
+   * Allow one interface name during automatic address selection.
+   *
+   * @param {string} name Interface name such as `en0` or `eth0`.
+   * @returns {AnnounceSpec} The same spec for chaining.
+   */
   enableInterface(name) {
     this.interfaceAllowlist.push(name);
     return this;
   }
 
+  /**
+   * Deny one interface name during automatic address selection.
+   *
+   * @param {string} name Interface name such as `en0` or `eth0`.
+   * @returns {AnnounceSpec} The same spec for chaining.
+   */
   disableInterface(name) {
     this.interfaceDenylist.push(name);
     return this;
@@ -288,12 +375,22 @@ export class AnnounceSpec {
   }
 }
 
+/**
+ * Handle returned by Client.announce.
+ *
+ * Call close to stop the background announce loop.
+ */
 export class AnnounceHandle {
   constructor(bindings, handle) {
     this.bindings = bindings;
     this.handle = handle;
   }
 
+  /**
+   * Stop the background announce loop.
+   *
+   * The method is idempotent and may be called multiple times.
+   */
   close() {
     if (this.handle) {
       this.bindings.announceStop(this.handle);
@@ -302,6 +399,11 @@ export class AnnounceHandle {
   }
 }
 
+/**
+ * Handle returned by Client.watch.
+ *
+ * Call close to stop the reconnecting SSE watch loop.
+ */
 export class WatchHandle {
   constructor(bindings, handle, callbackRef) {
     this.bindings = bindings;
@@ -309,6 +411,11 @@ export class WatchHandle {
     this.callbackRef = callbackRef;
   }
 
+  /**
+   * Stop the watch loop and release the native callback reference.
+   *
+   * The method is idempotent and may be called multiple times.
+   */
   close() {
     if (this.handle) {
       this.bindings.watchStop(this.handle);
@@ -318,7 +425,31 @@ export class WatchHandle {
   }
 }
 
+/**
+ * High level Node.js client for discovery, announce and watch operations.
+ *
+ * @example
+ * const client = new Client("https://registry.example.com", "secret-token");
+ * const nodes = client.discover(new DiscoveryFilter("office-net"));
+ * console.log(nodes);
+ * client.close();
+ */
 export class Client {
+  /**
+   * Create a client bound to one server base URL.
+   *
+   * @param {string} serverUrl Server root URL such as `https://registry.example.com`.
+   * @param {string} [bearerToken=""] Optional Bearer token.
+   * @param {object} [options={}] Optional client defaults.
+   * @param {string} [options.libraryPath] Explicit path to the native library.
+   * @param {boolean} [options.includeLoopback=false] Whether auto discovery may include loopback.
+   * @param {boolean} [options.includeIpv6=false] Whether auto discovery may include IPv6.
+   * @param {boolean} [options.includePrivateIpv4=true] Whether auto discovery may include private IPv4.
+   * @param {boolean} [options.includeLinkLocalIpv4=false] Whether auto discovery may include link local IPv4.
+   * @param {number} [options.timeoutMs] HTTP timeout in milliseconds.
+   * @param {[number, number]} [options.reconnectBackoffMs] Min and max reconnect backoff in milliseconds.
+   * @throws {LndError} Thrown when the native library cannot be loaded or the client cannot be created.
+   */
   constructor(serverUrl, bearerToken = "", options = {}) {
     this.bindings = createBindings(options.libraryPath);
     this.handle = checkPtr(this.bindings, this.bindings.clientNew(serverUrl, bearerToken));
@@ -337,6 +468,11 @@ export class Client {
     }
   }
 
+  /**
+   * Release the underlying native client handle.
+   *
+   * After calling this method, the instance must not be used again.
+   */
   close() {
     if (this.handle) {
       this.bindings.clientFree(this.handle);
@@ -344,21 +480,50 @@ export class Client {
     }
   }
 
+  /**
+   * Update the server base URL for future requests.
+   *
+   * @param {string} serverUrl Server root URL.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the URL cannot be applied by the native client.
+   */
   setServerUrl(serverUrl) {
     checkBool(this.bindings, this.bindings.clientSetServerUrl(this.handle, serverUrl));
     return this;
   }
 
+  /**
+   * Update the Bearer token used for future requests.
+   *
+   * @param {string} bearerToken Token value. Pass an empty string to clear it.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the token cannot be applied by the native client.
+   */
   setBearerToken(bearerToken) {
     checkBool(this.bindings, this.bindings.clientSetBearerToken(this.handle, bearerToken));
     return this;
   }
 
+  /**
+   * Set the HTTP timeout used by future requests.
+   *
+   * @param {number} timeoutMs Timeout in milliseconds.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the timeout cannot be applied.
+   */
   setTimeoutMs(timeoutMs) {
     checkBool(this.bindings, this.bindings.clientSetTimeoutMs(this.handle, timeoutMs));
     return this;
   }
 
+  /**
+   * Configure the reconnect backoff range for announce and watch loops.
+   *
+   * @param {number} minMs Minimum backoff in milliseconds.
+   * @param {number} maxMs Maximum backoff in milliseconds.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the backoff range cannot be applied.
+   */
   setReconnectBackoffMs(minMs, maxMs) {
     checkBool(
       this.bindings,
@@ -367,41 +532,96 @@ export class Client {
     return this;
   }
 
+  /**
+   * Control whether automatic address resolution may include loopback addresses.
+   *
+   * @param {boolean} on Whether loopback addresses are allowed.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the policy cannot be applied.
+   */
   setIncludeLoopback(on) {
     checkBool(this.bindings, this.bindings.clientSetIncludeLoopback(this.handle, on));
     return this;
   }
 
+  /**
+   * Control whether automatic address resolution may include IPv6 addresses.
+   *
+   * @param {boolean} on Whether IPv6 addresses are allowed.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the policy cannot be applied.
+   */
   setIncludeIpv6(on) {
     checkBool(this.bindings, this.bindings.clientSetIncludeIpv6(this.handle, on));
     return this;
   }
 
+  /**
+   * Control whether automatic address resolution may include private IPv4 addresses.
+   *
+   * @param {boolean} on Whether private IPv4 addresses are allowed.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the policy cannot be applied.
+   */
   setIncludePrivateIpv4(on) {
     checkBool(this.bindings, this.bindings.clientSetIncludePrivateIpv4(this.handle, on));
     return this;
   }
 
+  /**
+   * Control whether automatic address resolution may include link local IPv4 addresses.
+   *
+   * @param {boolean} on Whether link local IPv4 addresses are allowed.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the policy cannot be applied.
+   */
   setIncludeLinkLocalIpv4(on) {
     checkBool(this.bindings, this.bindings.clientSetIncludeLinkLocalIpv4(this.handle, on));
     return this;
   }
 
+  /**
+   * Allow one interface during automatic address resolution.
+   *
+   * @param {string} name Interface name such as `en0` or `eth0`.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the rule cannot be applied.
+   */
   enableInterface(name) {
     checkBool(this.bindings, this.bindings.clientEnableInterface(this.handle, name));
     return this;
   }
 
+  /**
+   * Deny one interface during automatic address resolution.
+   *
+   * @param {string} name Interface name such as `en0` or `eth0`.
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the rule cannot be applied.
+   */
   disableInterface(name) {
     checkBool(this.bindings, this.bindings.clientDisableInterface(this.handle, name));
     return this;
   }
 
+  /**
+   * Clear all interface allow and deny rules.
+   *
+   * @returns {Client} The same client for chaining.
+   * @throws {LndError} Thrown when the filters cannot be cleared.
+   */
   clearInterfaceFilters() {
     checkBool(this.bindings, this.bindings.clientClearInterfaceFilters(this.handle));
     return this;
   }
 
+  /**
+   * Perform one discovery request and parse the JSON response.
+   *
+   * @param {DiscoveryFilter} filterSpec Discovery filter to send.
+   * @returns {Array<object>} Parsed discovered nodes.
+   * @throws {LndError} Thrown when request setup or the native call fails.
+   */
   discover(filterSpec) {
     const filterHandle = filterSpec._intoHandle(this.bindings);
     try {
@@ -414,6 +634,13 @@ export class Client {
     }
   }
 
+  /**
+   * Resolve the final LAN address list for one announce spec.
+   *
+   * @param {AnnounceSpec} spec Announce spec to resolve locally.
+   * @returns {Array<string>} Final deduplicated `host:port` addresses.
+   * @throws {LndError} Thrown when local interface enumeration or argument conversion fails.
+   */
   resolveAnnounceAddrs(spec) {
     const specHandle = spec._intoHandle(this.bindings);
     try {
@@ -426,6 +653,13 @@ export class Client {
     }
   }
 
+  /**
+   * Perform one registration request and return the normalized node record.
+   *
+   * @param {AnnounceSpec} spec Node registration spec.
+   * @returns {object} Parsed discovered node returned by the server.
+   * @throws {LndError} Thrown when address resolution or the request fails.
+   */
   announceOnce(spec) {
     const specHandle = spec._intoHandle(this.bindings);
     try {
@@ -438,6 +672,15 @@ export class Client {
     }
   }
 
+  /**
+   * Start a background announce loop.
+   *
+   * The loop renews the lease until the returned handle is closed.
+   *
+   * @param {AnnounceSpec} spec Node registration spec.
+   * @returns {AnnounceHandle} Handle used to stop the background loop.
+   * @throws {LndError} Thrown when the loop cannot be started.
+   */
   announce(spec) {
     const specHandle = spec._intoHandle(this.bindings);
     try {
@@ -450,6 +693,17 @@ export class Client {
     }
   }
 
+  /**
+   * Start a reconnecting watch loop.
+   *
+   * callback receives parsed SSE envelopes. On cursor replay failure the stream
+   * emits a `reset` event followed by a fresh `snapshot`.
+   *
+   * @param {DiscoveryFilter} filterSpec Discovery filter to watch.
+   * @param {(event: object) => void} callback Function called for every event.
+   * @returns {WatchHandle} Handle used to stop the background watch loop.
+   * @throws {LndError} Thrown when the watch cannot be started.
+   */
   watch(filterSpec, callback) {
     const filterHandle = filterSpec._intoHandle(this.bindings);
     try {

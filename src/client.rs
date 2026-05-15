@@ -22,9 +22,23 @@ use crate::protocol::{
     DiscoveredNode, DiscoveryEvent, DiscoveryEventEnvelope, DiscoveryFilter, NodeAnnouncement,
 };
 
+/// `watch` 返回的异步事件流类型.
+///
+/// 功能简介:
+/// - 每个元素要么是一个成功解析的 [`DiscoveryEventEnvelope`], 要么是 [`ClientError`].
+/// - 该流内部已经处理了 SSE 重连, cursor 恢复和 `reset` 后快照补发.
 pub type WatchStream =
     Pin<Box<dyn Stream<Item = Result<DiscoveryEventEnvelope, ClientError>> + Send>>;
 
+/// Rust client 配置.
+///
+/// 使用场景:
+/// - 直接调用 [`LndClient::new`] 时显式传入.
+/// - 通过 [`ClientBuilder`] 渐进构造.
+///
+/// 注意事项:
+/// - `default_address_selection` 只影响自动地址解析的默认值.
+/// - 单个 [`AnnounceSpec`] 上的地址选择参数可以覆盖该默认值.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub server_url: String,
@@ -54,11 +68,23 @@ pub struct LndClient {
     config: ClientConfig,
 }
 
+/// 长时间注册循环的句柄.
+///
+/// 功能简介:
+/// - 由 [`LndClient::announce_loop`] 返回.
+/// - 通过 [`AnnounceHandle::stop`] 停止后台续租任务.
 pub struct AnnounceHandle {
     shutdown: watch::Sender<bool>,
     task: JoinHandle<Result<(), ClientError>>,
 }
 
+/// Rust client 错误类型.
+///
+/// 常见来源:
+/// - HTTP 请求失败.
+/// - JSON 序列化或反序列化失败.
+/// - server 返回业务错误.
+/// - client 配置不合法, 例如 Bearer token 头无法构造.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("http error: {0}")]
@@ -76,10 +102,38 @@ pub enum ClientError {
 }
 
 impl LndClient {
+    /// 创建一个 builder, 用于渐进构造 [`LndClient`].
+    ///
+    /// 参数:
+    /// - `server_url`: server base URL, 例如 `http://127.0.0.1:8765`.
+    ///
+    /// 返回值:
+    /// - 一个 [`ClientBuilder`].
+    ///
+    /// 使用示例:
+    /// ```rust
+    /// use lnd::LndClient;
+    ///
+    /// let client = LndClient::builder("http://127.0.0.1:8765")
+    ///     .bearer_token("dev-token")
+    ///     .include_loopback(true)
+    ///     .build();
+    /// ```
     pub fn builder(server_url: impl Into<String>) -> ClientBuilder {
         ClientBuilder::new(server_url)
     }
 
+    /// 从完整配置创建 client.
+    ///
+    /// 参数:
+    /// - `config`: 包含 base URL, 鉴权, 超时和默认地址选择的配置.
+    ///
+    /// 返回值:
+    /// - 成功时返回可复用的 [`LndClient`].
+    ///
+    /// 异常:
+    /// - 返回 [`ClientError::InvalidConfig`] 当 Bearer token 无法转为合法 header.
+    /// - 返回 [`ClientError::Http`] 当底层 HTTP client 构建失败.
     pub fn new(config: ClientConfig) -> Result<Self, ClientError> {
         let mut headers = reqwest::header::HeaderMap::new();
         if !config.bearer_token.is_empty() {
@@ -98,6 +152,20 @@ impl LndClient {
         Ok(Self { http, config })
     }
 
+    /// 执行一次性节点查询.
+    ///
+    /// 参数:
+    /// - `filter`: 发现过滤条件.
+    ///
+    /// 返回值:
+    /// - 当前快照中的全部匹配节点.
+    ///
+    /// 异常:
+    /// - 返回 [`ClientError`] 当网络请求失败, server 返回错误, 或响应无法解析.
+    ///
+    /// 注意事项:
+    /// - 本方法只返回节点列表, 不返回 cursor.
+    /// - 如果调用方需要后续从快照续接 watch, 应自行调用底层 `list_response` 风格逻辑或使用 `watch`.
     #[instrument(skip(self), fields(network_id = %filter.network_id))]
     pub async fn list(&self, filter: DiscoveryFilter) -> Result<Vec<DiscoveredNode>, ClientError> {
         self.list_response(filter)
@@ -113,6 +181,31 @@ impl LndClient {
         parse_json_response::<DiscoverResponse>(response).await
     }
 
+    /// 创建一个可自动重连的 watch 事件流.
+    ///
+    /// 参数:
+    /// - `filter`: 发现过滤条件.
+    ///
+    /// 返回值:
+    /// - 一个 [`WatchStream`], 可持续拉取 `snapshot`, `upsert`, `remove`, `reset` 等事件.
+    ///
+    /// 注意事项:
+    /// - 该流内部会在连接断开后自动重连.
+    /// - 当 server 返回 `reset` 或 cursor 失效时, 该流会自动补发一份新的 `snapshot`.
+    /// - 调用方应持续消费该流, 否则无法及时推进 cursor.
+    ///
+    /// 使用示例:
+    /// ```rust
+    /// use futures::StreamExt;
+    /// use lnd::{DiscoveryFilter, LndClient};
+    ///
+    /// # async fn demo(client: LndClient) {
+    /// let mut stream = client.watch(DiscoveryFilter::new("office-a"));
+    /// while let Some(event) = stream.next().await {
+    ///     println!("{:?}", event);
+    /// }
+    /// # }
+    /// ```
     pub fn watch(&self, filter: DiscoveryFilter) -> WatchStream {
         let client = self.clone();
         Box::pin(async_stream::try_stream! {
@@ -194,6 +287,21 @@ impl LndClient {
         })
     }
 
+    /// 启动一个后台续租循环.
+    ///
+    /// 参数:
+    /// - `spec`: 注册规格.
+    ///
+    /// 返回值:
+    /// - 一个 [`AnnounceHandle`], 可在稍后停止续租.
+    ///
+    /// 异常:
+    /// - 返回 [`ClientError`] 当后台任务在启动前就无法创建.
+    ///
+    /// 注意事项:
+    /// - 该循环会先解析地址, 再调用一次注册.
+    /// - 成功注册后按 `ttl_secs / 3` 加抖动续租.
+    /// - 失败时会使用指数退避重试.
     pub fn announce_loop(&self, spec: AnnounceSpec) -> Result<AnnounceHandle, ClientError> {
         let client = self.clone();
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
@@ -244,6 +352,20 @@ impl LndClient {
         })
     }
 
+    /// 提交一次最终公告.
+    ///
+    /// 参数:
+    /// - `announcement`: 已解析完成的最终公告模型.
+    ///
+    /// 返回值:
+    /// - server 接受后的 [`DiscoveredNode`], 其中包含最新租约信息.
+    ///
+    /// 异常:
+    /// - 返回 [`ClientError`] 当网络请求失败, server 拒绝请求, 或响应无法解析.
+    ///
+    /// 注意事项:
+    /// - 本方法不会自动解析地址.
+    /// - 大多数业务代码应优先使用 [`LndClient::announce_loop`] 或先调用 [`LndClient::resolve_announce_addrs`].
     #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = %announcement.network_id))]
     pub async fn announce_once(
         &self,
@@ -266,6 +388,16 @@ impl LndClient {
         self.config.server_url.trim_end_matches('/').to_string()
     }
 
+    /// 根据 client 默认地址选择和 `spec` 覆写规则, 解析最终上报地址.
+    ///
+    /// 参数:
+    /// - `spec`: 原始注册规格.
+    ///
+    /// 返回值:
+    /// - 去重后的 `SocketAddr` 列表.
+    ///
+    /// 异常:
+    /// - 返回 [`ClientError::Io`] 当本机网络接口读取失败.
     pub fn resolve_announce_addrs(
         &self,
         spec: &AnnounceSpec,
@@ -296,6 +428,7 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
+    /// 创建一个新的 client builder.
     pub fn new(server_url: impl Into<String>) -> Self {
         let config = ClientConfig {
             server_url: server_url.into(),
@@ -304,32 +437,38 @@ impl ClientBuilder {
         Self { config }
     }
 
+    /// 设置 Bearer token.
     pub fn bearer_token(mut self, bearer_token: impl Into<String>) -> Self {
         self.config.bearer_token = bearer_token.into();
         self
     }
 
+    /// 设置 HTTP 请求超时.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.config.timeout = timeout;
         self
     }
 
+    /// 设置 watch 和 announce 重试时的指数退避区间.
     pub fn reconnect_backoff(mut self, min: Duration, max: Duration) -> Self {
         self.config.reconnect_backoff_min = min;
         self.config.reconnect_backoff_max = max;
         self
     }
 
+    /// 设置默认地址选择是否允许 loopback.
     pub fn include_loopback(mut self, include_loopback: bool) -> Self {
         self.config.default_address_selection.include_loopback = include_loopback;
         self
     }
 
+    /// 设置默认地址选择是否允许 IPv6.
     pub fn include_ipv6(mut self, include_ipv6: bool) -> Self {
         self.config.default_address_selection.include_ipv6 = include_ipv6;
         self
     }
 
+    /// 向默认地址选择规则追加接口白名单.
     pub fn enable_interface(mut self, interface_name: impl Into<String>) -> Self {
         self.config
             .default_address_selection
@@ -338,6 +477,7 @@ impl ClientBuilder {
         self
     }
 
+    /// 向默认地址选择规则追加接口黑名单.
     pub fn disable_interface(mut self, interface_name: impl Into<String>) -> Self {
         self.config
             .default_address_selection
@@ -346,17 +486,32 @@ impl ClientBuilder {
         self
     }
 
+    /// 用一份完整地址选择规则替换默认值.
     pub fn address_selection(mut self, address_selection: AddressSelection) -> Self {
         self.config.default_address_selection = address_selection;
         self
     }
 
+    /// 构建最终 client.
+    ///
+    /// 返回值:
+    /// - 成功时返回 [`LndClient`].
+    ///
+    /// 异常:
+    /// - 可能返回 [`ClientError`] 当配置不合法或 HTTP client 初始化失败.
     pub fn build(self) -> Result<LndClient, ClientError> {
         LndClient::new(self.config)
     }
 }
 
 impl AnnounceHandle {
+    /// 停止后台续租循环并等待任务退出.
+    ///
+    /// 返回值:
+    /// - 成功时返回 `Ok(())`.
+    ///
+    /// 异常:
+    /// - 返回 [`ClientError::Api`] 当后台任务 join 失败.
     pub async fn stop(self) -> Result<(), ClientError> {
         let _ = self.shutdown.send(true);
         self.task
@@ -365,6 +520,16 @@ impl AnnounceHandle {
     }
 }
 
+/// 从指定路径读取 node id, 如不存在则自动创建一个新的 UUID.
+///
+/// 参数:
+/// - `path`: 状态文件路径.
+///
+/// 返回值:
+/// - 持久 `node_id`.
+///
+/// 异常:
+/// - 返回 [`ClientError::Io`] 当文件读写失败.
 pub async fn load_or_create_node_id(path: &Path) -> Result<String, ClientError> {
     match tokio::fs::read_to_string(path).await {
         Ok(value) => Ok(value.trim().to_string()),
@@ -380,6 +545,12 @@ pub async fn load_or_create_node_id(path: &Path) -> Result<String, ClientError> 
     }
 }
 
+/// 返回默认 node id 状态文件路径.
+///
+/// 优先级:
+/// - `dirs::state_dir()`
+/// - `dirs::data_local_dir()`
+/// - `std::env::temp_dir()`
 pub fn default_node_id_path() -> PathBuf {
     let base = dirs::state_dir()
         .or_else(dirs::data_local_dir)
@@ -387,6 +558,11 @@ pub fn default_node_id_path() -> PathBuf {
     base.join("lnd").join("node_id")
 }
 
+/// 返回默认 display name.
+///
+/// 规则:
+/// - 优先使用系统 hostname.
+/// - 回退为 `"lnd-node"`.
 pub fn default_display_name() -> String {
     hostname::get()
         .ok()
@@ -395,12 +571,20 @@ pub fn default_display_name() -> String {
         .unwrap_or_else(|| "lnd-node".to_string())
 }
 
+/// 解析地址列表, 端口默认为 `0`.
+///
+/// 参数:
+/// - `explicit`: 显式地址列表. 如果传入 `Some`, 则只做去重.
+///
+/// 返回值:
+/// - 去重后的地址列表.
 pub fn resolve_lan_addrs(
     explicit: Option<Vec<SocketAddr>>,
 ) -> Result<Vec<SocketAddr>, ClientError> {
     resolve_lan_addrs_with_port(explicit, 0)
 }
 
+/// 解析地址列表, 并为纯 IP 补上给定端口.
 pub fn resolve_lan_addrs_with_port(
     explicit: Option<Vec<SocketAddr>>,
     port: u16,
@@ -408,6 +592,18 @@ pub fn resolve_lan_addrs_with_port(
     resolve_lan_addrs_with_port_and_selection(explicit, port, &AddressSelection::default())
 }
 
+/// 使用给定地址选择规则解析地址列表.
+///
+/// 参数:
+/// - `explicit`: 如果为 `Some`, 则直接返回去重结果.
+/// - `port`: 自动发现地址时附加的端口.
+/// - `selection`: 地址选择规则.
+///
+/// 返回值:
+/// - 去重后的地址集合.
+///
+/// 异常:
+/// - 返回 [`ClientError::Io`] 当接口枚举失败.
 pub fn resolve_lan_addrs_with_port_and_selection(
     explicit: Option<Vec<SocketAddr>>,
     port: u16,
@@ -438,6 +634,14 @@ pub fn resolve_lan_addrs_with_port_and_selection(
     Ok(dedupe_socket_addrs(addrs))
 }
 
+/// 根据 `AnnounceSpec` 和默认地址选择规则解析最终上报地址.
+///
+/// 参数:
+/// - `spec`: 原始注册规格.
+/// - `default_selection`: client 默认地址选择.
+///
+/// 返回值:
+/// - 显式地址和自动解析地址合并去重后的结果.
 pub fn resolve_announce_addrs_with_defaults(
     spec: &AnnounceSpec,
     default_selection: &AddressSelection,
@@ -453,6 +657,16 @@ pub fn resolve_announce_addrs_with_defaults(
     Ok(dedupe_socket_addrs(addrs))
 }
 
+/// 将 `key=value` 形式的字符串切片解析为 metadata 映射.
+///
+/// 参数:
+/// - `pairs`: 例如 `["version=1.0.0", "role=api"]`.
+///
+/// 返回值:
+/// - 一个 `BTreeMap<String, String>`.
+///
+/// 异常:
+/// - 当某个字符串不含 `=` 时返回错误.
 pub fn metadata_from_pairs(pairs: &[String]) -> anyhow::Result<BTreeMap<String, String>> {
     let mut metadata = BTreeMap::new();
     for pair in pairs {
@@ -537,19 +751,29 @@ pub fn parse_socket_addrs(values: &[String], port: u16) -> anyhow::Result<Vec<So
         .collect()
 }
 
+/// 将事件封装为 JSON 字符串.
+///
+/// 返回值:
+/// - 成功时返回 UTF-8 JSON.
 pub fn watch_event_to_json(event: &DiscoveryEventEnvelope) -> Result<String, ClientError> {
     serde_json::to_string(event).map_err(ClientError::from)
 }
 
+/// 将节点列表编码为 JSON 字符串.
 pub fn discover_nodes_to_json(nodes: &[DiscoveredNode]) -> Result<String, ClientError> {
     serde_json::to_string(nodes).map_err(ClientError::from)
 }
 
+/// 从 JSON 字符串解析发现过滤器.
+///
+/// 异常:
+/// - 返回 [`ClientError::Serde`] 当 JSON 结构不合法.
 pub fn parse_filter_json(json: &str) -> Result<DiscoveryFilter, ClientError> {
     let filter: Value = serde_json::from_str(json)?;
     serde_json::from_value(filter).map_err(ClientError::from)
 }
 
+/// 从 JSON 字符串解析注册规格.
 pub fn parse_announce_json(json: &str) -> Result<AnnounceSpec, ClientError> {
     let spec: Value = serde_json::from_str(json)?;
     serde_json::from_value(spec).map_err(ClientError::from)
