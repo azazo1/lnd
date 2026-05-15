@@ -15,8 +15,6 @@
 
 #define DEFAULT_EVENT_BUFFER_CAPACITY 4096
 
-typedef struct Option_LndWatchCallback Option_LndWatchCallback;
-
 typedef struct LndClientHandle {
   uint8_t _private[0];
 } LndClientHandle;
@@ -486,7 +484,7 @@ void lnd_announce_stop(struct LndAnnounceHandle *handle);
  */
 struct LndWatchHandle *lnd_watch_start_with_filter(struct LndClientHandle *handle,
                                                    const struct LndDiscoveryFilterHandle *filter,
-                                                   struct Option_LndWatchCallback callback,
+                                                   LndWatchCallback callback,
                                                    void *user_data);
 
 /**
@@ -500,7 +498,7 @@ struct LndWatchHandle *lnd_watch_start_with_filter(struct LndClientHandle *handl
  */
 struct LndWatchHandle *lnd_watch_start(struct LndClientHandle *handle,
                                        const char *filter_json,
-                                       struct Option_LndWatchCallback callback,
+                                       LndWatchCallback callback,
                                        void *user_data);
 
 /**

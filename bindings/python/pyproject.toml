@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lnd-sdk"
+version = "0.1.0"
+description = "High-level Python SDK for lnd centralized LAN discovery"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "azazo1" }
+]
+keywords = ["discovery", "lan", "mdns", "network", "sse"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+lnd = ["py.typed"]

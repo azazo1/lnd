@@ -1,2 +1,20 @@
 /target
 /vendor/
+
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Node.js
+node_modules/
+
+# Java
+*.class
+
+# OS
+.DS_Store

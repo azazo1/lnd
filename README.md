@@ -22,7 +22,7 @@ v1 协议为 REST + SSE:
 - 客户端带抖动续租, 指数退避重连, SSE 断线重连和 cursor 恢复
 - 默认自动收集非 loopback 的私网 IPv4, 也支持 loopback, IPv6, 接口白名单和黑名单
 - Rust API 采用 builder 和 handle 风格, 便于嵌入其他项目
-- 导出 C ABI 动态库, 其他语言可以直接通过 `liblnd` 接入
+- 导出稳定 C ABI 作为底座, 并在仓库内提供面向外部语言的高层 SDK
 - Server 可以独立运行, 也可以通过 `build_router` 嵌入自己的 Axum 服务
 
 ## 整体流程
@@ -383,14 +383,21 @@ async fn main() -> anyhow::Result<()> {
 
 ## C ABI
 
-v1 的跨语言承诺基于 C ABI. 设计原则是:
+v1 的跨语言底座仍然是 C ABI, 但它不是推荐给业务项目直接使用的最终接口. 推荐方式是:
+
+- Rust 项目直接依赖 Rust crate
+- Go 项目使用仓库内的纯 Go SDK
+- Python, Node, Java, C++ 项目使用仓库内的高层绑定
+- 只有 C 或必须自己封装的场景, 才直接使用 `lnd.h`
+
+设计原则是:
 
 - Rust 内部复杂类型不直接跨 ABI 暴露
 - 使用 opaque handle 管理 client, announce 和 watch 生命周期
 - 请求和响应可以走 JSON
-- 同时也提供 setter 风格 API, 让外部语言获得接近 Rust 原生的配置面
+- 同时也提供 setter 风格 API, 让高层绑定可以映射出接近 Rust 原生的对象接口
 
-头文件位于 [include/lnd.h](/Users/azazo1/pjs/rust/lnd/include/lnd.h).
+头文件位于 [include/lnd.h](/Users/azazo1/pjs/rust/lnd/include/lnd.h). 它更适合作为绑定层的实现基础, 而不是应用层直接写业务时的 API.
 
 ### 核心对象
 
@@ -503,61 +510,116 @@ int main(void) {
 
 ## 其他语言接入
 
-外部语言建议统一走 `liblnd + lnd.h`. 因为 ABI 已经提供 handle 和 setter 风格接口, 所以不需要把所有配置都压成一坨 JSON.
+仓库现在区分两层:
 
-### Go
+- 底层: `include/lnd.h` 和 `liblnd`
+- 高层: `bindings/` 下的各语言 SDK
 
-Go 通过 `cgo` 直接引入 `lnd.h` 和动态库.
+推荐优先使用高层 SDK. 它们对外暴露的不是一组零散的 C 函数, 而是与 Rust 类似的对象接口:
 
-运行示例前:
-
-```bash
-export CGO_CFLAGS="-I$(pwd)/include"
-export CGO_LDFLAGS="-L$(pwd)/target/release -llnd"
-```
-
-示例见 [examples/ffi/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/ffi/go/main.go).
+- `Client`
+- `DiscoveryFilter`
+- `AnnounceSpec`
+- `AnnounceHandle`
+- `WatchHandle`
 
 ### Python
 
-Python 可以用 `ctypes` 直接加载 `liblnd`.
+Python 现在按可打包 wheel 的标准结构放在 [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python).
 
-示例见 [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py).
+可以构建 wheel:
 
-运行时记得设置动态库搜索路径:
+```bash
+cd bindings/python
+uv run python -m build
+```
 
-- Linux: `LD_LIBRARY_PATH`
-- macOS: `DYLD_LIBRARY_PATH`
-- Windows: 将 `target\\release` 放到 `PATH`
+生成的 wheel 是纯 Python 包, 例如:
+
+```bash
+pip install dist/lnd_sdk-0.1.0-py3-none-any.whl
+```
+
+运行时仍需要能找到 `lnd` 动态库. 也就是说:
+
+- Python SDK 可以成熟地打包成 `.whl`
+- 但当前 wheel 不是 self-contained 的原生扩展 wheel
+- 它依赖运行环境已经具备 `liblnd.so` / `liblnd.dylib` / `lnd.dll`
+- 可通过 `library_path=...` 或 `LND_LIBRARY_PATH` 显式指定动态库位置
+
+最小用法:
+
+```python
+from lnd import Client, DiscoveryFilter
+
+with Client("http://127.0.0.1:8765", "dev-token") as client:
+    nodes = client.discover(
+        DiscoveryFilter("office-a").with_service("_demo._tcp").add_tag("stable")
+    )
+    print(nodes)
+```
+
+示例见 [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](/Users/azazo1/pjs/rust/lnd/bindings/python/lnd/client.py).
+
+### Go
+
+Go 这边不再建议走 `cgo + lnd.h`. 仓库内提供的是纯 Go SDK, 位于 [bindings/go](/Users/azazo1/pjs/rust/lnd/bindings/go), 直接实现 `lnd` 的 HTTP(S) + REST + SSE 协议.
+
+这意味着如果仓库地址和版本 tag 可见, 外部项目可以直接:
+
+```bash
+go get github.com/azazo1/lnd/bindings/go
+```
+
+这也是比 `cgo` 更合理的分发方式, 因为:
+
+- 不要求调用方本地安装 Rust 动态库
+- 不要求配置 `CGO_CFLAGS` 和 `CGO_LDFLAGS`
+- 更符合 Go 生态对 `go get` 和纯 Go module 的预期
+- `announce` 也会在 client 侧解析自动 LAN 地址, 不是把未展开的 spec 直接发给 server
+
+最小用法:
+
+```go
+client := lnd.NewClient("http://127.0.0.1:8765", "dev-token")
+nodes, err := client.Discover(
+    context.Background(),
+    lnd.NewDiscoveryFilter("office-a").WithService("_demo._tcp").AddTag("stable"),
+)
+```
+
+示例见 [examples/ffi/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/ffi/go/main.go), SDK 源码见 [bindings/go/client.go](/Users/azazo1/pjs/rust/lnd/bindings/go/client.go).
 
 ### Node.js
 
-Node 侧推荐 `ffi-napi` 或 `koffi` 之类的 FFI 绑定库. 仓库中的示例使用 `koffi`, 因为接口定义更直接.
+Node 侧提供高层 JS SDK, 位于 [bindings/node](/Users/azazo1/pjs/rust/lnd/bindings/node). 它对外暴露 `Client`, `DiscoveryFilter`, `AnnounceSpec` 等对象, 内部再用 `koffi` 调用 `liblnd`.
 
-示例见 [examples/ffi/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/ffi/node/discover.js).
+当前已经具备 npm 包的基本元数据, 但运行时仍需要本机能找到 `liblnd`.
+
+示例见 [examples/ffi/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/ffi/node/discover.js), 绑定源码见 [bindings/node/index.js](/Users/azazo1/pjs/rust/lnd/bindings/node/index.js).
 
 依赖安装建议使用 `bun`:
 
 ```bash
-cd examples/ffi/node
+cd bindings/node
 bun install
 ```
 
 ### Java
 
-Java 侧建议使用 JNA 直接映射 `lnd.h` 中的函数签名.
+Java 侧提供基于 JNA 的高层包装, 位于 [bindings/java/Lnd.java](/Users/azazo1/pjs/rust/lnd/bindings/java/Lnd.java). 对外暴露 `Lnd.Client`, `Lnd.DiscoveryFilter`, `Lnd.AnnounceSpec` 等对象.
 
 示例见 [examples/ffi/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/ffi/java/Discover.java).
 
 ### C++
 
-C++ 可以直接复用 C 头文件, 再用 RAII 包装 handle.
+C++ 侧提供 RAII 包装头文件 [bindings/cpp/lnd.hpp](/Users/azazo1/pjs/rust/lnd/bindings/cpp/lnd.hpp), 对外暴露 `lnd::Client`, `lnd::DiscoveryFilter`, `lnd::AnnounceSpec`, `lnd::AnnounceHandle`, `lnd::WatchHandle` 等高层对象.
 
 示例见 [examples/ffi/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/ffi/cpp/discover.cpp).
 
 ### C#
 
-仓库中暂未放 C# 示例, 但可以按 `DllImport` 直接映射 C ABI. 如果你需要 .NET 示例, 可以在后续版本中补上.
+仓库中暂未放 C# 高层绑定. 如果后续要支持 .NET, 更合理的方向也是先做一层对象化封装, 而不是让业务代码直接写 `DllImport` 调裸 C ABI.
 
 ## examples
 
@@ -575,6 +637,14 @@ FFI 示例:
 - [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py)
 - [examples/ffi/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/ffi/node/discover.js)
 - [examples/ffi/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/ffi/java/Discover.java)
+
+Bindings:
+
+- [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python)
+- [bindings/go](/Users/azazo1/pjs/rust/lnd/bindings/go)
+- [bindings/node](/Users/azazo1/pjs/rust/lnd/bindings/node)
+- [bindings/java/Lnd.java](/Users/azazo1/pjs/rust/lnd/bindings/java/Lnd.java)
+- [bindings/cpp/lnd.hpp](/Users/azazo1/pjs/rust/lnd/bindings/cpp/lnd.hpp)
 
 ## 设计取舍
 

@@ -57,7 +57,7 @@ async fn ffi_discover_and_watch_work() {
     assert!(unsafe { lnd_discovery_filter_add_tag(filter, tag.as_ptr()) });
 
     let watch = unsafe {
-        lnd_watch_start_with_filter(client, filter, Some(watch_callback), std::ptr::null_mut())
+        lnd_watch_start_with_filter(client, filter, watch_callback, std::ptr::null_mut())
     };
     assert!(!watch.is_null(), "ffi watch init failed");
 

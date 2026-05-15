@@ -1,0 +1,17 @@
+{
+  "name": "@lnd/sdk",
+  "version": "0.1.0",
+  "description": "High-level Node.js SDK for lnd centralized LAN discovery",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js"
+  ],
+  "dependencies": {
+    "koffi": "^2.8.0"
+  }
+}

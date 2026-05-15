@@ -238,11 +238,9 @@ fn client_announce_start(
 fn client_watch_start(
     client: LndClient,
     filter: DiscoveryFilter,
-    callback: Option<LndWatchCallback>,
+    callback: LndWatchCallback,
     user_data: *mut c_void,
 ) -> Result<*mut LndWatchHandle, ClientError> {
-    let callback =
-        callback.ok_or_else(|| ClientError::InvalidConfig("watch callback is null".to_string()))?;
     let runtime = runtime()?.clone();
     let user_data = user_data as usize;
     let (stop_tx, mut stop_rx) = oneshot::channel();
@@ -1202,7 +1200,7 @@ pub unsafe extern "C" fn lnd_announce_stop(handle: *mut LndAnnounceHandle) {
 pub unsafe extern "C" fn lnd_watch_start_with_filter(
     handle: *mut LndClientHandle,
     filter: *const LndDiscoveryFilterHandle,
-    callback: Option<LndWatchCallback>,
+    callback: LndWatchCallback,
     user_data: *mut c_void,
 ) -> *mut LndWatchHandle {
     ptr_result(catch_ffi(|| {
@@ -1229,7 +1227,7 @@ pub unsafe extern "C" fn lnd_watch_start_with_filter(
 pub unsafe extern "C" fn lnd_watch_start(
     handle: *mut LndClientHandle,
     filter_json: *const c_char,
-    callback: Option<LndWatchCallback>,
+    callback: LndWatchCallback,
     user_data: *mut c_void,
 ) -> *mut LndWatchHandle {
     ptr_result(catch_ffi(|| {
