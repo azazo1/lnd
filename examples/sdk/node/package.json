@@ -1,8 +1,0 @@
-{
-  "name": "lnd-node-sdk-example",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "koffi": "^2.8.0"
-  }
-}

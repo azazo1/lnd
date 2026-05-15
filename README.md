@@ -395,7 +395,7 @@ v1 的跨语言底座仍然是 C ABI, 但它不是推荐给业务项目直接使
 
 - Rust 项目直接依赖 Rust crate
 - Go 项目使用仓库内的纯 Go SDK
-- Python, Node, Java, C++ 项目使用仓库内的高层绑定
+- Python 项目使用仓库内的高层 SDK
 - 只有 C 或必须自己封装的场景, 才直接使用 `lnd.h`
 
 设计原则是:
@@ -605,33 +605,6 @@ nodes, err := client.Discover(
 
 示例见 [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go), SDK 源码见 [bindings/go/client.go](/Users/azazo1/pjs/rust/lnd/bindings/go/client.go).
 
-### Node.js
-
-Node 侧提供高层 JS SDK, 位于 [bindings/node](/Users/azazo1/pjs/rust/lnd/bindings/node). 它对外暴露 `Client`, `DiscoveryFilter`, `AnnounceSpec` 等对象, 内部再用 `koffi` 调用 `liblnd`.
-
-当前已经具备 npm 包的基本元数据, 但运行时仍需要本机能找到 `liblnd`.
-
-示例见 [examples/sdk/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/sdk/node/discover.js), 绑定源码见 [bindings/node/index.js](/Users/azazo1/pjs/rust/lnd/bindings/node/index.js).
-
-依赖安装建议使用 `bun`:
-
-```bash
-cd bindings/node
-bun install
-```
-
-### Java
-
-Java 侧提供基于 JNA 的高层包装, 位于 [bindings/java/Lnd.java](/Users/azazo1/pjs/rust/lnd/bindings/java/Lnd.java). 对外暴露 `Lnd.Client`, `Lnd.DiscoveryFilter`, `Lnd.AnnounceSpec` 等对象.
-
-示例见 [examples/sdk/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Discover.java).
-
-### C++
-
-C++ 侧提供 RAII 包装头文件 [bindings/cpp/lnd.hpp](/Users/azazo1/pjs/rust/lnd/bindings/cpp/lnd.hpp), 对外暴露 `lnd::Client`, `lnd::DiscoveryFilter`, `lnd::AnnounceSpec`, `lnd::AnnounceHandle`, `lnd::WatchHandle` 等高层对象.
-
-示例见 [examples/sdk/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/sdk/cpp/discover.cpp).
-
 ### C Sharp
 
 仓库中暂未放 C# 高层绑定. 如果后续要支持 .NET, 更合理的方向也是先做一层对象化封装, 而不是让业务代码直接写 `DllImport` 调裸 C ABI.
@@ -646,11 +619,8 @@ Rust 示例:
 
 SDK 示例:
 
-- [examples/sdk/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/sdk/cpp/discover.cpp)
 - [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go)
 - [examples/sdk/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/sdk/python/discover.py)
-- [examples/sdk/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/sdk/node/discover.js)
-- [examples/sdk/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Discover.java)
 
 C ABI 示例:
 
@@ -660,9 +630,6 @@ Bindings:
 
 - [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python)
 - [bindings/go](/Users/azazo1/pjs/rust/lnd/bindings/go)
-- [bindings/node](/Users/azazo1/pjs/rust/lnd/bindings/node)
-- [bindings/java/Lnd.java](/Users/azazo1/pjs/rust/lnd/bindings/java/Lnd.java)
-- [bindings/cpp/lnd.hpp](/Users/azazo1/pjs/rust/lnd/bindings/cpp/lnd.hpp)
 
 ## 设计取舍
 

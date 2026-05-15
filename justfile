@@ -86,7 +86,7 @@ watch *args:
 example-rust name:
     cargo run --example {{ name }}
 
-# Run the Go SDK example.
+# Run the Go SDK example in a temporary consumer module.
 example-go:
     tmpdir="$(mktemp -d -t lnd-go-example.XXXXXX)" && \
     trap 'rm -rf "$tmpdir"' EXIT && \
@@ -101,14 +101,6 @@ example-go:
       'replace github.com/azazo1/lnd/bindings/go => {{ justfile_directory() }}/bindings/go' \
       > "$tmpdir/go.mod" && \
     cd "$tmpdir" && go run .
-
-# Install Node.js SDK dependencies with bun.
-node-install:
-    cd bindings/node && bun install
-
-# Run the Node.js SDK example.
-example-node: build-release node-install
-    bun run ./examples/sdk/node/discover.js
 
 # Build the Python wheel.
 python-wheel:
