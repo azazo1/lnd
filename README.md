@@ -525,27 +525,34 @@ int main(void) {
 
 ### Python
 
-Python 现在按可打包 wheel 的标准结构放在 [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python).
+Python wheel 项目入口位于 [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python), 其中 Rust 原生扩展子 crate 位于 [bindings/python/native](/Users/azazo1/pjs/rust/lnd/bindings/python/native).
 
 可以构建 wheel:
 
 ```bash
 cd bindings/python
-uv run python -m build
+maturin build --release
 ```
 
-生成的 wheel 是纯 Python 包, 例如:
+生成的 wheel 是包含原生扩展的包, 例如:
 
 ```bash
-pip install dist/lnd_sdk-0.1.0-py3-none-any.whl
+pip install target/wheels/lnd_sdk-0.1.0-*.whl
 ```
 
-运行时仍需要能找到 `lnd` 动态库. 也就是说:
+设计上分成两层:
 
-- Python SDK 可以成熟地打包成 `.whl`
-- 但当前 wheel 不是 self-contained 的原生扩展 wheel
-- 它依赖运行环境已经具备 `liblnd.so` / `liblnd.dylib` / `lnd.dll`
-- 可通过 `library_path=...` 或 `LND_LIBRARY_PATH` 显式指定动态库位置
+- 主 crate `lnd` 保持纯 Rust, 不引入 `pyo3`
+- `bindings/python/native` 是 workspace 子 crate, 负责 `maturin + pyo3` 原生扩展
+
+运行时直接使用 wheel 内置的 `lnd._native`.
+
+因此现在的目标形态是:
+
+- Python 用户安装 wheel 后默认不需要额外准备 `liblnd`
+- `pyo3` 不会进入主 Rust crate
+- Python wheel 由 `bindings/python` 作为 mixed project 入口构建
+- 扩展模块按 `abi3-py310` 构建, 一个 wheel 可覆盖 Python 3.10 及以上版本
 
 最小用法:
 
@@ -559,7 +566,7 @@ with Client("http://127.0.0.1:8765", "dev-token") as client:
     print(nodes)
 ```
 
-示例见 [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](/Users/azazo1/pjs/rust/lnd/bindings/python/lnd/client.py).
+示例见 [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](/Users/azazo1/pjs/rust/lnd/bindings/python/lnd/client.py), Rust 扩展入口见 [bindings/python/native/src/lib.rs](/Users/azazo1/pjs/rust/lnd/bindings/python/native/src/lib.rs).
 
 ### Go
 

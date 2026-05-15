@@ -33,7 +33,8 @@ pub mod tracing_utils;
 
 pub use client::{
     AnnounceHandle, ClientBuilder, ClientConfig, LndClient, default_node_id_path,
-    load_or_create_node_id,
+    discover_nodes_to_json, load_or_create_node_id, parse_announce_json, parse_filter_json,
+    resolve_announce_addrs_with_defaults, watch_event_to_json,
 };
 pub use protocol::{
     AddressSelection, AnnounceSpec, ApiErrorBody, DiscoverResponse, DiscoveredNode, DiscoveryEvent,

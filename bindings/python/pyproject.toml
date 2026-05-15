@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
 
 [project]
 name = "lnd-sdk"
@@ -15,15 +15,16 @@ keywords = ["discovery", "lan", "mdns", "network", "sse"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Rust",
   "License :: Other/Proprietary License",
   "Operating System :: OS Independent",
 ]
 
-[tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["."]
-
-[tool.setuptools.package-data]
-lnd = ["py.typed"]
+[tool.maturin]
+manifest-path = "native/Cargo.toml"
+python-source = "."
+module-name = "lnd._native"
+features = ["pyo3/abi3-py310", "pyo3/extension-module"]
+include = [
+  "lnd/py.typed",
+]
