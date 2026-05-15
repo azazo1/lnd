@@ -506,7 +506,7 @@ int main(void) {
 }
 ```
 
-示例源码见 [examples/ffi/c/discover_watch.c](/Users/azazo1/pjs/rust/lnd/examples/ffi/c/discover_watch.c).
+示例源码见 [bindings/c/discover_watch.c](/Users/azazo1/pjs/rust/lnd/bindings/c/discover_watch.c).
 
 ## 其他语言接入
 
@@ -566,7 +566,7 @@ with Client("http://127.0.0.1:8765", "dev-token") as client:
     print(nodes)
 ```
 
-示例见 [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](/Users/azazo1/pjs/rust/lnd/bindings/python/lnd/client.py), Rust 扩展入口见 [bindings/python/native/src/lib.rs](/Users/azazo1/pjs/rust/lnd/bindings/python/native/src/lib.rs).
+示例见 [examples/sdk/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/sdk/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](/Users/azazo1/pjs/rust/lnd/bindings/python/lnd/client.py), Rust 扩展入口见 [bindings/python/native/src/lib.rs](/Users/azazo1/pjs/rust/lnd/bindings/python/native/src/lib.rs).
 
 ### Go
 
@@ -595,7 +595,7 @@ nodes, err := client.Discover(
 )
 ```
 
-示例见 [examples/ffi/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/ffi/go/main.go), SDK 源码见 [bindings/go/client.go](/Users/azazo1/pjs/rust/lnd/bindings/go/client.go).
+示例见 [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go), SDK 源码见 [bindings/go/client.go](/Users/azazo1/pjs/rust/lnd/bindings/go/client.go).
 
 ### Node.js
 
@@ -603,7 +603,7 @@ Node 侧提供高层 JS SDK, 位于 [bindings/node](/Users/azazo1/pjs/rust/lnd/b
 
 当前已经具备 npm 包的基本元数据, 但运行时仍需要本机能找到 `liblnd`.
 
-示例见 [examples/ffi/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/ffi/node/discover.js), 绑定源码见 [bindings/node/index.js](/Users/azazo1/pjs/rust/lnd/bindings/node/index.js).
+示例见 [examples/sdk/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/sdk/node/discover.js), 绑定源码见 [bindings/node/index.js](/Users/azazo1/pjs/rust/lnd/bindings/node/index.js).
 
 依赖安装建议使用 `bun`:
 
@@ -616,13 +616,13 @@ bun install
 
 Java 侧提供基于 JNA 的高层包装, 位于 [bindings/java/Lnd.java](/Users/azazo1/pjs/rust/lnd/bindings/java/Lnd.java). 对外暴露 `Lnd.Client`, `Lnd.DiscoveryFilter`, `Lnd.AnnounceSpec` 等对象.
 
-示例见 [examples/ffi/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/ffi/java/Discover.java).
+示例见 [examples/sdk/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Discover.java).
 
 ### C++
 
 C++ 侧提供 RAII 包装头文件 [bindings/cpp/lnd.hpp](/Users/azazo1/pjs/rust/lnd/bindings/cpp/lnd.hpp), 对外暴露 `lnd::Client`, `lnd::DiscoveryFilter`, `lnd::AnnounceSpec`, `lnd::AnnounceHandle`, `lnd::WatchHandle` 等高层对象.
 
-示例见 [examples/ffi/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/ffi/cpp/discover.cpp).
+示例见 [examples/sdk/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/sdk/cpp/discover.cpp).
 
 ### C Sharp
 
@@ -636,14 +636,17 @@ Rust 示例:
 - [examples/announce_once.rs](/Users/azazo1/pjs/rust/lnd/examples/announce_once.rs): 一次性注册
 - [examples/watch.rs](/Users/azazo1/pjs/rust/lnd/examples/watch.rs): 持续监听事件
 
-FFI 示例:
+SDK 示例:
 
-- [examples/ffi/c/discover_watch.c](/Users/azazo1/pjs/rust/lnd/examples/ffi/c/discover_watch.c)
-- [examples/ffi/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/ffi/cpp/discover.cpp)
-- [examples/ffi/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/ffi/go/main.go)
-- [examples/ffi/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/ffi/python/discover.py)
-- [examples/ffi/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/ffi/node/discover.js)
-- [examples/ffi/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/ffi/java/Discover.java)
+- [examples/sdk/cpp/discover.cpp](/Users/azazo1/pjs/rust/lnd/examples/sdk/cpp/discover.cpp)
+- [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go)
+- [examples/sdk/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/sdk/python/discover.py)
+- [examples/sdk/node/discover.js](/Users/azazo1/pjs/rust/lnd/examples/sdk/node/discover.js)
+- [examples/sdk/java/Discover.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Discover.java)
+
+C ABI 示例:
+
+- [bindings/c/discover_watch.c](/Users/azazo1/pjs/rust/lnd/bindings/c/discover_watch.c)
 
 Bindings:
 

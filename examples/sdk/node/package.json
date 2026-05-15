@@ -1,5 +1,5 @@
 {
-  "name": "lnd-node-ffi-example",
+  "name": "lnd-node-sdk-example",
   "private": true,
   "type": "module",
   "dependencies": {
