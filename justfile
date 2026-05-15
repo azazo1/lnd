@@ -12,6 +12,8 @@ port := "8080"
 display_name := "devbox-a"
 # Default server config file passed to `just server`.
 config_file := "config.toml.example"
+# Default Java output directory used by local build recipes.
+java_out_dir := "target/java/classes"
 
 alias b := build
 alias br := build-release
@@ -96,11 +98,21 @@ example-go:
       '' \
       'go 1.23' \
       '' \
-      'require github.com/azazo1/lnd/bindings/go v0.0.0' \
+      'require github.com/azazo1/lnd/impls/go v0.0.0' \
       '' \
-      'replace github.com/azazo1/lnd/bindings/go => {{ justfile_directory() }}/bindings/go' \
+      'replace github.com/azazo1/lnd/impls/go => {{ justfile_directory() }}/impls/go' \
       > "$tmpdir/go.mod" && \
     cd "$tmpdir" && go run .
+
+# Compile the Java SDK sources with javac.
+java-build:
+    mkdir -p {{ java_out_dir }}
+    javac -d {{ java_out_dir }} $(find impls/java/src/main/java -name '*.java' | sort)
+
+# Compile and run the Java SDK example.
+example-java: java-build
+    javac -cp {{ java_out_dir }} -d {{ java_out_dir }} examples/sdk/java/Main.java
+    java -cp {{ java_out_dir }} Main
 
 # Build the Python wheel.
 python-wheel:
@@ -112,7 +124,7 @@ example-python: python-wheel
 
 # Run Go SDK tests.
 go-test:
-    cd bindings/go && go test ./...
+    cd impls/go && go test ./...
 
 # Build release artifacts and the Python wheel.
 dist: build-release python-wheel

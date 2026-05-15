@@ -5,7 +5,7 @@
 这意味着只要仓库和 tag 可见, 外部项目可以直接:
 
 ```bash
-go get github.com/azazo1/lnd/bindings/go
+go get github.com/azazo1/lnd/impls/go
 ```
 
 当前前提:

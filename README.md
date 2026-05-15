@@ -679,12 +679,12 @@ with Client("http://127.0.0.1:8765", "dev-token") as client:
 
 ### Go
 
-Go 这边不再建议走 `cgo + lnd.h`. 仓库内提供的是纯 Go SDK, 位于 [bindings/go](/Users/azazo1/pjs/rust/lnd/bindings/go), 直接实现 `lnd` 的 HTTP(S) + REST + SSE 协议.
+Go 这边不再建议走 `cgo + lnd.h`. 仓库内提供的是纯 Go SDK, 位于 [impls/go](/Users/azazo1/pjs/rust/lnd/impls/go), 直接实现 `lnd` 的 HTTP(S) + REST + SSE 协议.
 
 这意味着如果仓库地址和版本 tag 可见, 外部项目可以直接:
 
 ```bash
-go get github.com/azazo1/lnd/bindings/go
+go get github.com/azazo1/lnd/impls/go
 ```
 
 这也是比 `cgo` 更合理的分发方式, 因为:
@@ -716,7 +716,55 @@ nodes, err := client.Discover(
 )
 ```
 
-示例见 [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go), SDK 源码见 [bindings/go/client.go](/Users/azazo1/pjs/rust/lnd/bindings/go/client.go).
+示例见 [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go), SDK 源码见 [impls/go/client.go](/Users/azazo1/pjs/rust/lnd/impls/go/client.go).
+
+### Java
+
+Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java).
+
+这样做的原因是:
+
+- 不需要额外准备 Rust 动态库
+- 不需要在 Android 上额外铺 `JNI + NDK + 多 ABI` 打包链路
+- API 可以直接做成 Java/Kotlin 习惯的高层对象接口
+
+当前 Java SDK 覆盖:
+
+- `Client`
+- `DiscoveryFilter`
+- `AnnounceSpec`
+- `AddressSelection`
+- `AnnounceHandle`
+- `WatchHandle`
+
+以及这些能力:
+
+- `resolveNetworkId()`
+- `listNetworkIdCandidates()`
+- `listReachabilityScopes()`
+- `discover()`
+- `discoverWithAutoScopeOverlap()`
+- `announceOnce()`
+- `announce()`
+- `watch()`
+- `watchWithAutoScopeOverlap()`
+
+最小接入方式:
+
+```java
+Client client = new Client("http://127.0.0.1:8765", "dev-token");
+String networkId = client.resolveNetworkId();
+```
+
+示例见 [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java), SDK 源码见 [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java).
+
+如果只问 "Rust 能不能直接用于 Android", 答案是可以, 但当前仓库还没有这些内容:
+
+- Android `NDK` 构建
+- `JNI` 封装
+- `AAR` 或 Android 示例工程
+
+所以现在更推荐 Java 纯协议 SDK 这条路径.
 
 ### C Sharp
 
@@ -733,6 +781,7 @@ Rust 示例:
 SDK 示例:
 
 - [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go)
+- [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java)
 - [examples/sdk/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/sdk/python/discover.py)
 
 C ABI 示例:
@@ -742,7 +791,8 @@ C ABI 示例:
 Bindings:
 
 - [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python)
-- [bindings/go](/Users/azazo1/pjs/rust/lnd/bindings/go)
+- [impls/go](/Users/azazo1/pjs/rust/lnd/impls/go)
+- [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java)
 
 ## 设计取舍
 

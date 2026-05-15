@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	lnd "github.com/azazo1/lnd/bindings/go"
+	lnd "github.com/azazo1/lnd/impls/go"
 )
 
 func main() {

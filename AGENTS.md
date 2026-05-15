@@ -44,13 +44,31 @@
 
 如果某种语言由于生态差异不能完全照搬接口形状, 至少要保持能力和语义尽量等价, 并在文档中明确差异.
 
-### 4. Generated artifacts are not the source of truth
+### 4. Respect the difference between bindings and protocol reimplementations
+
+仓库中的跨语言接入层不一定都属于同一类:
+
+- `bindings` 可能是建立在 Rust 核心之上的绑定封装
+- `impls` 可能是直接重实现协议的独立 SDK
+
+这两类入口的同步风险不同, 但都属于 public surface.
+
+因此当 discovery 协议, 默认值, 自动推导规则, watch / announce 语义发生变化时, 不要只检查一种接入层.
+要先判断这次变更会影响:
+
+- Rust 核心直接复用型绑定
+- 纯协议重实现型 SDK
+- 两者同时
+
+尤其不能假设某个纯协议 SDK 会随着 Rust 改动自动保持正确.
+
+### 5. Generated artifacts are not the source of truth
 
 如果仓库中存在生成产物, 应修改其真正的源头, 然后重新生成或校验产物.
 
 不要长期手工维护派生文件, 除非项目已经明确把它们当作手写源文件使用.
 
-### 5. Docs, examples, and tests are part of the product
+### 6. Docs, examples, and tests are part of the product
 
 推荐用法一旦改变, 文档, 示例, 测试也要一起更新.
 
@@ -61,7 +79,7 @@
 
 这类不一致和代码 bug 一样严重.
 
-### 6. Prefer stable semantics over clever local fixes
+### 7. Prefer stable semantics over clever local fixes
 
 涉及 identity, discovery, filtering, replay, lease, auto detection 这类基础语义时, 优先追求:
 
@@ -72,13 +90,13 @@
 
 不要为了局部方便引入很难在其他绑定或其他平台复现的隐式规则.
 
-### 7. Keep the core clean
+### 8. Keep the core clean
 
 跨语言接入层应该尽量是非侵入式的.
 
 如果某个特定语言的打包, 运行时, 或生态约束只属于该语言, 优先把它放在附属层 (子 crate) 处理, 不要无必要污染核心实现.
 
-### 8. Validate semantics, not only compilation
+### 9. Validate semantics, not only compilation
 
 编译通过只能说明接口表面大致对齐, 不能说明行为真的一致.
 
@@ -90,7 +108,7 @@
 
 如果某项能力跨多个入口暴露, 最好至少覆盖一个核心测试和一个绑定层或 CLI 层面的验证.
 
-### 9. This file must evolve with the architecture
+### 10. This file must evolve with the architecture
 
 AGENTS.md 不是一次性文档.
 
