@@ -1,4 +1,6 @@
-# lnd agent notes
+# Local Network Discovery agent notes
+
+LND 就是 Local Network Discovery 的缩写.
 
 ## Goal
 
