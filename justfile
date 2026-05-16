@@ -126,5 +126,8 @@ example-python: python-wheel
 go-test:
     cd impls/go && go test ./...
 
+buildx target='x86_64-unknown-linux-musl':
+    cargo zigbuild --target {{ target }} --release
+
 # Build release artifacts and the Python wheel.
-dist: build-release python-wheel
+dist: build-release python-wheel buildx
