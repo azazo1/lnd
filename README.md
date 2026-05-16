@@ -245,7 +245,7 @@ cargo run --bin lnd-client -- \
 - `--server-url`: client 连接的 server base URL
 - `--bearer-token`: 预共享 Bearer token
 - `--node-id`: 显式指定持久 node id
-- `--node-id-path`: 从状态文件读取或生成 node id
+- `--node-id-path`: CLI 自己使用的状态文件路径, 用于读取或生成 node id
 - `--lan-addr`: 手工指定地址, 可多次传入
 - `--auto-lan-addrs`: 是否自动补充本机地址
 - `--auto-reachability-scopes`: 是否自动补充本机子网可达域
@@ -404,6 +404,8 @@ Rust 侧主要公开类型:
 - `LeaseInfo`
 - `DerivedNetworkId`
 - `ReachabilityScope`
+
+Rust library 侧的 `node_id` 生成, 持久化, 以及 `display_name` 默认值由接入端自己决定.
 
 与 `mdns-sd` 风格相近的点:
 

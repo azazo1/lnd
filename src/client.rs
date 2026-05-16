@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -16,7 +15,6 @@ use serde_json::Value;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, instrument, warn};
-use uuid::Uuid;
 
 use crate::protocol::{
     AddressSelection, AnnounceSpec, ApiErrorBody, DEFAULT_TTL_SECS, DiscoverResponse,
@@ -593,57 +591,6 @@ impl AnnounceHandle {
             .await
             .map_err(|error| ClientError::Api(format!("announce task join error: {error}")))?
     }
-}
-
-/// 从指定路径读取 node id, 如不存在则自动创建一个新的 UUID.
-///
-/// 参数:
-/// - `path`: 状态文件路径.
-///
-/// 返回值:
-/// - 持久 `node_id`.
-///
-/// 异常:
-/// - 返回 [`ClientError::Io`] 当文件读写失败.
-pub async fn load_or_create_node_id(path: &Path) -> Result<String, ClientError> {
-    match tokio::fs::read_to_string(path).await {
-        Ok(value) => Ok(value.trim().to_string()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if let Some(parent) = path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            let node_id = Uuid::new_v4().to_string();
-            tokio::fs::write(path, format!("{node_id}\n")).await?;
-            Ok(node_id)
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// 返回默认 node id 状态文件路径.
-///
-/// 优先级:
-/// - `dirs::state_dir()`
-/// - `dirs::data_local_dir()`
-/// - `std::env::temp_dir()`
-pub fn default_node_id_path() -> PathBuf {
-    let base = dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("lnd").join("node_id")
-}
-
-/// 返回默认 display name.
-///
-/// 规则:
-/// - 优先使用系统 hostname.
-/// - 回退为 `"lnd-node"`.
-pub fn default_display_name() -> String {
-    hostname::get()
-        .ok()
-        .and_then(|value| value.into_string().ok())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "lnd-node".to_string())
 }
 
 /// 解析地址列表, 端口默认为 `0`.

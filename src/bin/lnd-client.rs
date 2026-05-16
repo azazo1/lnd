@@ -1,12 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use futures::StreamExt;
-use lnd::client::{
-    LndClient, default_display_name, default_node_id_path, load_or_create_node_id,
-    metadata_from_pairs, parse_socket_addrs,
-};
+use lnd::client::{LndClient, metadata_from_pairs, parse_socket_addrs};
 use lnd::protocol::{AnnounceSpec, DiscoveryFilter};
 use lnd::tracing_utils::init_tracing;
 
@@ -117,6 +114,36 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn default_node_id_path() -> PathBuf {
+    let base = dirs::state_dir()
+        .or_else(dirs::data_local_dir)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("lnd").join("node_id")
+}
+
+fn default_display_name() -> String {
+    hostname::get()
+        .ok()
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "lnd-node".to_string())
+}
+
+async fn load_or_create_node_id(path: &Path) -> anyhow::Result<String> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(value) => Ok(value.trim().to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            let node_id = uuid::Uuid::new_v4().to_string();
+            tokio::fs::write(path, format!("{node_id}\n")).await?;
+            Ok(node_id)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> {
