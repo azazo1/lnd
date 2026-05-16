@@ -3,13 +3,12 @@
 //! 功能:
 //! - 提供基于 HTTP(S) 中心注册表的局域网发现 client API.
 //! - 提供可嵌入的 server 路由和内存注册表实现.
-//! - 提供 C ABI 底座, 供其他语言包装更高层 SDK.
+//! - 提供供绑定层复用的纯 Rust 核心能力.
 //!
 //! 主要模块:
 //! - [`client`]: Rust client 和地址解析工具.
 //! - [`protocol`]: 请求, 响应, 事件和配置数据模型.
 //! - [`server`]: Axum server, 注册表和 SSE watch 能力.
-//! - [`ffi`]: C ABI.
 //!
 //! 最小示例:
 //! ```rust
@@ -27,8 +26,6 @@
 //! # }
 //! ```
 pub mod client;
-#[allow(unsafe_op_in_unsafe_fn)]
-pub mod ffi;
 pub mod protocol;
 pub mod server;
 pub mod tracing_utils;

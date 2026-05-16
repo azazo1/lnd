@@ -1,0 +1,23 @@
+[package]
+name = "lnd-c-native"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "lnd"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+futures = "0.3.31"
+lnd_core = { package = "lnd", path = "../../.." }
+serde_json = "1.0.140"
+tokio = { version = "1.45.0", features = ["rt-multi-thread", "sync"] }
+
+[build-dependencies]
+cbindgen = "0.29.0"
+
+[dev-dependencies]
+anyhow = "1.0.100"
+reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1.45.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+lnd_core = { package = "lnd", path = "../../.." }

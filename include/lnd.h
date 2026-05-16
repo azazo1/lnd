@@ -8,30 +8,6 @@
 #include <stdlib.h>
 
 /**
- * 默认租约 TTL, 单位为秒.
- *
- * v1 中 client 和 server 的默认值都会使用这个常量.
- */
-#define DEFAULT_TTL_SECS 30
-
-/**
- * 默认续租间隔, 单位为秒.
- *
- * 该值对应默认 TTL `30s` 的 `ttl / 3`.
- */
-#define DEFAULT_RENEW_INTERVAL_SECS 10
-
-/**
- * 默认 SSE keepalive 间隔, 单位为秒.
- */
-#define DEFAULT_SSE_KEEPALIVE_SECS 15
-
-/**
- * 默认事件缓冲区容量.
- */
-#define DEFAULT_EVENT_BUFFER_CAPACITY 4096
-
-/**
  * Opaque client handle used for discovery, announce and watch operations.
  *
  * Create with `lnd_client_new` or `lnd_client_new_default`, then release with

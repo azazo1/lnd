@@ -9,12 +9,12 @@ use futures::StreamExt;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
-use crate::client::{
+use lnd_core::client::{
     AnnounceHandle, ClientConfig, ClientError, LndClient, discover_nodes_to_json,
     list_network_id_candidates, parse_announce_json, parse_filter_json, parse_socket_addrs,
     resolve_announce_addrs_with_defaults, resolve_network_id_with_selection, watch_event_to_json,
 };
-use crate::protocol::{AddressSelection, AnnounceSpec, DiscoveryFilter};
+use lnd_core::protocol::{AddressSelection, AnnounceSpec, DiscoveryFilter};
 
 type SharedRuntime = Arc<Runtime>;
 

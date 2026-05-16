@@ -4,7 +4,8 @@
 
 仓库同时产出三类内容:
 
-- Rust library: `rlib + cdylib`
+- Rust library: `rlib`
+- C ABI 动态库: `liblnd`
 - 客户端二进制: `lnd-client`
 - 服务端二进制: `lnd-server`
 
@@ -153,18 +154,28 @@ flowchart LR
 cargo build --release
 ```
 
+如果需要 C ABI 动态库和头文件, 额外构建:
+
+```bash
+cargo build -p lnd-c-native --release
+```
+
 如果本机安装了 [`just`](https://github.com/casey/just), 也可以直接使用仓库根目录的 [justfile](/Users/azazo1/pjs/rust/lnd/justfile) 快速执行常用命令, 例如:
 
 ```bash
 just server
 just discover --service _demo._tcp --json
+just build-c-native
 just python-wheel
 ```
 
-构建完成后通常可以得到:
+执行 `cargo build --release` 后通常可以得到:
 
 - `target/release/lnd-client`
 - `target/release/lnd-server`
+
+执行 `cargo build -p lnd-c-native --release` 后通常可以得到:
+
 - `target/release/liblnd.so`
 - `target/release/liblnd.dylib`
 - `target/release/lnd.dll`
@@ -502,6 +513,7 @@ v1 的跨语言底座仍然是 C ABI, 但它不是推荐给业务项目直接使
 - 同时也提供 setter 风格 API, 让高层绑定可以映射出接近 Rust 原生的对象接口
 
 头文件位于 [include/lnd.h](/Users/azazo1/pjs/rust/lnd/include/lnd.h). 它更适合作为绑定层的实现基础, 而不是应用层直接写业务时的 API.
+对应的动态库构建入口位于 [bindings/c/native](/Users/azazo1/pjs/rust/lnd/bindings/c/native).
 
 ### 核心对象
 
@@ -622,7 +634,7 @@ int main(void) {
 
 仓库现在区分两层:
 
-- 底层: `include/lnd.h` 和 `liblnd`
+- 底层: `include/lnd.h` 和 `bindings/c/native` 产出的 `liblnd`
 - 高层: `bindings/` 下的各语言 SDK
 
 推荐优先使用高层 SDK. 它们对外暴露的不是一组零散的 C 函数, 而是与 Rust 类似的对象接口:

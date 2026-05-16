@@ -46,7 +46,7 @@ test-integration:
 
 # Run the FFI smoke test.
 test-ffi:
-    cargo test --test ffi_smoke
+    cargo test -p lnd-c-native --test ffi_smoke
 
 # Build debug artifacts.
 build:
@@ -118,6 +118,10 @@ example-java: java-build
 python-wheel:
     cd bindings/python && maturin build --release
 
+# Build the C ABI dynamic library and header.
+build-c-native:
+    cargo build -p lnd-c-native --release
+
 # Run the Python SDK example against the newest built wheel.
 example-python: python-wheel
     uv run --with "$(ls -1t target/wheels/lnd_sdk-*.whl | head -n 1)" python ./examples/sdk/python/discover.py
@@ -130,4 +134,4 @@ buildx target='x86_64-unknown-linux-musl':
     cargo zigbuild --target {{ target }} --release
 
 # Build release artifacts and the Python wheel.
-dist: build-release python-wheel buildx
+dist: build-release build-c-native python-wheel buildx
