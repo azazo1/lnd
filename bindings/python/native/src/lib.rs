@@ -243,11 +243,9 @@ fn announce_once_json(
     let addrs = client
         .resolve_announce_addrs(&spec)
         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-    let scopes = resolve_reachability_scopes_with_defaults(
-        &spec,
-        &parse_defaults(&address_defaults_json)?,
-    )
-    .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    let scopes =
+        resolve_reachability_scopes_with_defaults(&spec, &parse_defaults(&address_defaults_json)?)
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
     let mut announcement = spec.into_announcement(addrs);
     announcement.reachability_scopes = scopes;
     let node = runtime()?

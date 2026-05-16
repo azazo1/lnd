@@ -234,10 +234,9 @@ impl LndClient {
             let mut cursor: Option<u64> = None;
             let mut attempt: u32 = 0;
             loop {
-                let mut request = client
-                    .http
-                    .get(format!("{}/v1/watch", client.base_url()))
-                    ;
+                let mut request = client.http.get(
+                    format!("{}/v1/watch", client.base_url())
+                );
                 if let Some(network_id) = filter.network_id.as_deref() {
                     request = request.query(&[("network_id", network_id)]);
                 }
@@ -791,7 +790,8 @@ pub fn list_network_id_candidates(
             .cmp(&right.scope)
             .then(left.network_id.cmp(&right.network_id))
     });
-    candidates.dedup_by(|left, right| left.scope == right.scope && left.network_id == right.network_id);
+    candidates
+        .dedup_by(|left, right| left.scope == right.scope && left.network_id == right.network_id);
     Ok(candidates)
 }
 
@@ -1121,8 +1121,14 @@ mod tests {
 
     #[test]
     fn stable_hex_is_deterministic() {
-        assert_eq!(short_stable_hex("v4:192.168.1.0/24"), short_stable_hex("v4:192.168.1.0/24"));
-        assert_ne!(short_stable_hex("v4:192.168.1.0/24"), short_stable_hex("v4:192.168.2.0/24"));
+        assert_eq!(
+            short_stable_hex("v4:192.168.1.0/24"),
+            short_stable_hex("v4:192.168.1.0/24")
+        );
+        assert_ne!(
+            short_stable_hex("v4:192.168.1.0/24"),
+            short_stable_hex("v4:192.168.2.0/24")
+        );
     }
 
     #[test]
@@ -1161,7 +1167,9 @@ mod tests {
         );
         let mut candidates = candidates;
         candidates.sort_by(|left, right| left.scope.cmp(&right.scope));
-        candidates.dedup_by(|left, right| left.scope == right.scope && left.network_id == right.network_id);
+        candidates.dedup_by(|left, right| {
+            left.scope == right.scope && left.network_id == right.network_id
+        });
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].scope, "192.168.1.0/24");
         assert_eq!(candidates[1].scope, "192.168.2.0/24");
@@ -1200,7 +1208,11 @@ mod tests {
             },
         ])
         .unwrap_err();
-        assert!(error.to_string().contains("multiple eligible network prefixes found"));
+        assert!(
+            error
+                .to_string()
+                .contains("multiple eligible network prefixes found")
+        );
     }
 
     #[test]

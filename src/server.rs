@@ -705,10 +705,12 @@ fn filter_matches(filter: &DiscoveryFilter, announcement: &NodeAnnouncement) -> 
         return false;
     }
     filter.reachability_scopes.is_empty()
-        || announcement
-            .reachability_scopes
-            .iter()
-            .any(|scope| filter.reachability_scopes.iter().any(|value| value == scope))
+        || announcement.reachability_scopes.iter().any(|scope| {
+            filter
+                .reachability_scopes
+                .iter()
+                .any(|value| value == scope)
+        })
 }
 
 fn event_matches_filter(event: &DiscoveryEventEnvelope, filter: &DiscoveryFilter) -> bool {
@@ -741,10 +743,12 @@ fn discovered_matches(filter: &DiscoveryFilter, node: &DiscoveredNode) -> bool {
         return false;
     }
     filter.reachability_scopes.is_empty()
-        || node
-            .reachability_scopes
-            .iter()
-            .any(|scope| filter.reachability_scopes.iter().any(|value| value == scope))
+        || node.reachability_scopes.iter().any(|scope| {
+            filter
+                .reachability_scopes
+                .iter()
+                .any(|value| value == scope)
+        })
 }
 
 fn dedupe_announcement(mut announcement: NodeAnnouncement) -> NodeAnnouncement {

@@ -691,8 +691,8 @@ pub unsafe extern "C" fn lnd_discovery_filter_set_network_id(
     bool_result(catch_ffi(|| {
         let state =
             cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
-        state.filter.network_id = read_optional_cstr(network_id, "network_id")?
-            .filter(|value| !value.trim().is_empty());
+        state.filter.network_id =
+            read_optional_cstr(network_id, "network_id")?.filter(|value| !value.trim().is_empty());
         Ok(())
     }))
 }
@@ -859,12 +859,11 @@ pub unsafe extern "C" fn lnd_discover_json(
 /// # Safety
 /// `handle` must be a live client handle.
 /// The returned pointer must be released with `lnd_string_free`.
-pub unsafe extern "C" fn lnd_resolve_network_id(
-    handle: *mut LndClientHandle,
-) -> *mut c_char {
+pub unsafe extern "C" fn lnd_resolve_network_id(handle: *mut LndClientHandle) -> *mut c_char {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let network_id = resolve_network_id_with_selection(&state.config.default_address_selection)?;
+        let network_id =
+            resolve_network_id_with_selection(&state.config.default_address_selection)?;
         Ok(into_c_string(network_id))
     }))
 }
@@ -958,8 +957,8 @@ pub unsafe extern "C" fn lnd_announce_spec_set_network_id(
             handle,
             "announce spec handle",
         )?;
-        state.spec.network_id = read_optional_cstr(network_id, "network_id")?
-            .filter(|value| !value.trim().is_empty());
+        state.spec.network_id =
+            read_optional_cstr(network_id, "network_id")?.filter(|value| !value.trim().is_empty());
         Ok(())
     }))
 }
