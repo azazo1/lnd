@@ -40,4 +40,7 @@ pub use protocol::{
     AddressSelection, AnnounceSpec, ApiErrorBody, DiscoverResponse, DiscoveredNode, DiscoveryEvent,
     DiscoveryEventEnvelope, DiscoveryFilter, LeaseInfo, NodeAnnouncement, WatchResponse,
 };
-pub use server::{InMemoryRegistry, ServerConfig, ServerConfigFile, build_router, run_server};
+pub use server::{
+    InMemoryRegistry, ServerConfig, ServerConfigFile, build_router, build_router_with_shutdown,
+    run_server, run_server_with_shutdown,
+};

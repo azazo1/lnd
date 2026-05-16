@@ -104,3 +104,37 @@ async fn watch_receives_snapshot_and_updates() {
         }
     }
 }
+
+#[tokio::test]
+async fn server_shutdown_completes_with_active_watch_stream() {
+    let server = TestServer::spawn().await.unwrap();
+    let client = server.client();
+
+    client
+        .announce_once(
+            sample_spec("node-watch-shutdown", 30)
+                .into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]),
+        )
+        .await
+        .unwrap();
+
+    let mut stream = client.watch(sample_filter());
+    let first = tokio::time::timeout(Duration::from_secs(5), stream.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(first.event, DiscoveryEvent::Snapshot { .. }));
+
+    let shutdown_result = tokio::time::timeout(
+        Duration::from_secs(3),
+        tokio::task::spawn_blocking(move || {
+            let mut server = server;
+            server.shutdown()
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    shutdown_result.unwrap();
+}

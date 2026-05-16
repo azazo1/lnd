@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Context;
 use lnd_core::client::{ClientConfig, LndClient};
 use lnd_core::protocol::AnnounceSpec;
-use lnd_core::server::{InMemoryRegistry, ServerConfig, run_server};
+use lnd_core::server::{InMemoryRegistry, ServerConfig, run_server_with_shutdown};
 use tokio::sync::oneshot;
 
 pub struct TestServer {
@@ -33,12 +33,13 @@ impl TestServer {
         };
         let join = std::thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().context("create test runtime")?;
-            runtime.block_on(async move {
-                tokio::select! {
-                    result = run_server(config, InMemoryRegistry::new(64)) => result,
-                    _ = shutdown_rx => Ok(()),
-                }
-            })
+            runtime.block_on(run_server_with_shutdown(
+                config,
+                InMemoryRegistry::new(64),
+                async move {
+                    let _ = shutdown_rx.await;
+                },
+            ))
         });
         wait_ready(addr, &bearer_token).await?;
         Ok(Self {

@@ -457,6 +457,8 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+如果你的进程里存在长生命周期 `watch` SSE 连接, 并且希望在应用 shutdown 时主动收拢这些连接, 建议改用 `build_router_with_shutdown` 并把同一个 shutdown 信号传给 `axum::serve(...).with_graceful_shutdown(...)`.
+
 如果你希望直接运行内置 server:
 
 ```rust

@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Context;
 use lnd::client::{ClientConfig, LndClient};
 use lnd::protocol::AnnounceSpec;
-use lnd::server::{InMemoryRegistry, ServerConfig, run_server};
+use lnd::server::{InMemoryRegistry, ServerConfig, run_server_with_shutdown};
 use tokio::sync::oneshot;
 
 pub struct TestServer {
@@ -34,12 +34,13 @@ impl TestServer {
         };
         let join = std::thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().context("create test runtime")?;
-            runtime.block_on(async move {
-                tokio::select! {
-                    result = run_server(config, InMemoryRegistry::new(64)) => result,
-                    _ = shutdown_rx => Ok(()),
-                }
-            })
+            runtime.block_on(run_server_with_shutdown(
+                config,
+                InMemoryRegistry::new(64),
+                async move {
+                    let _ = shutdown_rx.await;
+                },
+            ))
         });
         wait_ready(addr, &bearer_token).await?;
         Ok(Self {
@@ -48,6 +49,20 @@ impl TestServer {
             shutdown_tx: Some(shutdown_tx),
             join: Some(join),
         })
+    }
+
+    pub fn shutdown(&mut self) -> anyhow::Result<()> {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+        if let Some(join) = self.join.take() {
+            match join.join() {
+                Ok(result) => result,
+                Err(_) => anyhow::bail!("test server thread panicked"),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     #[allow(dead_code)]
@@ -64,12 +79,7 @@ impl TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-        }
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        let _ = self.shutdown();
     }
 }
 

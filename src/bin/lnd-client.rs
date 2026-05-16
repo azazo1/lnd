@@ -197,7 +197,7 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
     println!("{}", serde_json::to_string(&node)?);
 
     let handle = client.announce_loop(spec)?;
-    tokio::signal::ctrl_c().await?;
+    wait_for_stop_signal().await?;
     handle.stop().await?;
     Ok(())
 }
@@ -265,6 +265,25 @@ async fn watch(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
         } else {
             println!("{:?}", event);
         }
+    }
+    Ok(())
+}
+
+async fn wait_for_stop_signal() -> anyhow::Result<()> {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        signal.recv().await;
+        Ok::<(), std::io::Error>(())
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<Result<(), std::io::Error>>();
+    tokio::select! {
+        result = ctrl_c => result?,
+        result = terminate => result?,
     }
     Ok(())
 }

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::Path as FsPath;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use axum::{Json, Router};
 use parking_lot::RwLock;
 use serde::Deserialize;
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tokio::time::MissedTickBehavior;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, info, instrument, warn};
@@ -154,10 +155,12 @@ struct FilterQuery {
     cursor: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AppState {
     config: ServerConfig,
     registry: InMemoryRegistry,
+    shutdown: watch::Receiver<bool>,
+    shutdown_guard: Option<watch::Sender<bool>>,
 }
 
 /// 注册表错误类型.
@@ -426,7 +429,30 @@ impl NodeEntry {
 /// 返回值:
 /// - 可直接挂载到 Axum 应用中的 [`Router`].
 pub fn build_router(config: ServerConfig, registry: InMemoryRegistry) -> Router {
-    let state = AppState { config, registry };
+    let (shutdown_guard, shutdown) = watch::channel(false);
+    build_router_from_state(AppState {
+        config,
+        registry,
+        shutdown,
+        shutdown_guard: Some(shutdown_guard),
+    })
+}
+
+pub fn build_router_with_shutdown(
+    config: ServerConfig,
+    registry: InMemoryRegistry,
+    shutdown: watch::Receiver<bool>,
+) -> Router {
+    build_router_from_state(AppState {
+        config,
+        registry,
+        shutdown,
+        shutdown_guard: None,
+    })
+}
+
+fn build_router_from_state(state: AppState) -> Router {
+    let _ = &state.shutdown_guard;
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/nodes", get(list_nodes))
@@ -452,29 +478,59 @@ pub fn build_router(config: ServerConfig, registry: InMemoryRegistry) -> Router 
 /// - 该函数内部会启动一个后台清理任务, 每秒清理一次过期租约.
 #[instrument(skip(config, registry))]
 pub async fn run_server(config: ServerConfig, registry: InMemoryRegistry) -> anyhow::Result<()> {
-    let app = build_router(config.clone(), registry.clone());
+    run_server_with_shutdown(config, registry, shutdown_signal()).await
+}
+
+pub async fn run_server_with_shutdown<F>(
+    config: ServerConfig,
+    registry: InMemoryRegistry,
+    shutdown: F,
+) -> anyhow::Result<()>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let app = build_router_with_shutdown(config.clone(), registry.clone(), shutdown_rx.clone());
     let listener = TcpListener::bind(config.listen_addr)
         .await
         .with_context(|| format!("failed to bind {}", config.listen_addr))?;
     info!(addr = %config.listen_addr, "lnd server listening");
 
     let cleanup_registry = registry.clone();
-    tokio::spawn(async move {
+    let mut cleanup_shutdown = shutdown_rx.clone();
+    let cleanup_task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
-            interval.tick().await;
-            let removed = cleanup_registry.remove_expired();
-            if removed > 0 {
-                debug!(removed, "expired leases removed");
+            tokio::select! {
+                _ = wait_for_shutdown(&mut cleanup_shutdown) => {
+                    debug!("cleanup task stopping");
+                    break;
+                }
+                _ = interval.tick() => {
+                    let removed = cleanup_registry.remove_expired();
+                    if removed > 0 {
+                        debug!(removed, "expired leases removed");
+                    }
+                }
             }
         }
     });
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+    let shutdown_notify = shutdown_tx.clone();
+    let serve_result = axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown.await;
+            info!("shutdown requested");
+            let _ = shutdown_notify.send(true);
+        })
         .await
-        .context("server failed")
+        .context("server failed");
+
+    let _ = shutdown_tx.send(true);
+    let _ = cleanup_task.await;
+
+    serve_result
 }
 
 async fn shutdown_signal() {
@@ -495,6 +551,13 @@ async fn shutdown_signal() {
         _ = ctrl_c => {}
         _ = terminate => {}
     }
+}
+
+async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
+    if *shutdown.borrow() {
+        return;
+    }
+    let _ = shutdown.changed().await;
 }
 
 async fn healthz() -> &'static str {
@@ -567,6 +630,7 @@ async fn watch_nodes(
     let registry = state.registry.clone();
     let keepalive_secs = state.config.sse_keepalive_secs;
     let filter_for_stream = filter.clone();
+    let mut shutdown = state.shutdown.clone();
     let response_stream = stream! {
         let snapshot_event = if replay.is_some() {
             if query.cursor.is_some() {
@@ -597,21 +661,29 @@ async fn watch_nodes(
 
         let mut rx = registry.subscribe();
         loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    if event_matches_filter(&event, &filter_for_stream) {
-                        yield Ok::<Event, Infallible>(serialize_event(event));
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    yield Ok::<Event, Infallible>(serialize_event(DiscoveryEventEnvelope {
-                        cursor: None,
-                        event: DiscoveryEvent::Reset,
-                    }));
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    warn!("watch channel closed");
+            tokio::select! {
+                _ = wait_for_shutdown(&mut shutdown) => {
+                    debug!("watch stream stopping");
                     break;
+                }
+                event = rx.recv() => {
+                    match event {
+                        Ok(event) => {
+                            if event_matches_filter(&event, &filter_for_stream) {
+                                yield Ok::<Event, Infallible>(serialize_event(event));
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            yield Ok::<Event, Infallible>(serialize_event(DiscoveryEventEnvelope {
+                                cursor: None,
+                                event: DiscoveryEvent::Reset,
+                            }));
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            warn!("watch channel closed");
+                            break;
+                        }
+                    }
                 }
             }
         }
