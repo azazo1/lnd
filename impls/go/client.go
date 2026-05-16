@@ -43,7 +43,7 @@ const (
 //
 //	filter := lnd.NewDiscoveryFilter().
 //		WithNetworkID("office-net").
-//		WithService("_demo._tcp").
+//		WithService("_http._tcp").
 //		AddTag("printer")
 type DiscoveryFilter struct {
 	NetworkID          *string  `json:"network_id,omitempty"`
@@ -64,6 +64,9 @@ func (f DiscoveryFilter) WithNetworkID(networkID string) DiscoveryFilter {
 }
 
 // WithService sets the required service name and returns the updated copy.
+//
+// Service names typically follow mDNS / DNS-SD service type conventions,
+// for example "_http._tcp".
 func (f DiscoveryFilter) WithService(service string) DiscoveryFilter {
 	f.Service = service
 	return f
@@ -90,7 +93,7 @@ func (f DiscoveryFilter) AddReachabilityScope(scope string) DiscoveryFilter {
 //
 // Example:
 //
-//	spec := lnd.NewAnnounceSpec("node-1", "_demo._tcp", "Demo Node", 8080).
+//	spec := lnd.NewAnnounceSpec("node-1", "_http._tcp", "Demo Node", 8080).
 //		WithNetworkID("office-net").
 //		AddTag("blue").
 //		InsertMetadata("role", "api")
@@ -112,9 +115,10 @@ type AnnounceSpec struct {
 
 // NewAnnounceSpec creates an announce specification with sensible defaults.
 //
-// nodeID must remain stable across restarts, service identifies the protocol
-// family, displayName is a human readable label, and port is the LAN service
-// port advertised to peers.
+// nodeID must remain stable across restarts. service identifies the protocol
+// family and usually follows mDNS / DNS-SD service type conventions such as
+// "_http._tcp". displayName is a human readable label, and port is the LAN
+// service port advertised to peers.
 //
 // The returned spec enables automatic LAN address discovery and uses
 // DefaultTTLSeconds unless overridden.

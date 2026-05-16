@@ -12,7 +12,7 @@ import java.util.List;
  * <ul>
  *   <li>用于一次性 discover 和持续 watch
  *   <li>`network_id` 为可选逻辑发现域
- *   <li>`service` 为单值过滤条件
+ *   <li>`service` 为单值过滤条件, 推荐使用 mDNS / DNS-SD 风格的 service type
  *   <li>`tags` 为全部满足语义
  *   <li>`reachability_scopes` 为至少一个重叠语义
  * </ul>
@@ -22,7 +22,7 @@ import java.util.List;
  * <pre>{@code
  * DiscoveryFilter filter = new DiscoveryFilter()
  *     .withNetworkId("office-a")
- *     .withService("_demo._tcp")
+ *     .withService("_http._tcp")
  *     .addTag("stable");
  * }</pre>
  */
@@ -56,7 +56,7 @@ public final class DiscoveryFilter {
     /**
      * 设置服务名过滤条件.
      *
-     * @param service 服务名, 例如 `_demo._tcp`
+     * @param service 服务名, 例如 `_http._tcp`, 建议使用 mDNS / DNS-SD 常见的 service type
      * @return 当前对象, 便于链式调用
      */
     public DiscoveryFilter withService(String service) {

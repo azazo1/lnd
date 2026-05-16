@@ -28,7 +28,7 @@ import java.util.Map;
  * <p>使用示例:
  *
  * <pre>{@code
- * AnnounceSpec spec = new AnnounceSpec("node-a", "_demo._tcp", "devbox-a", 8080)
+ * AnnounceSpec spec = new AnnounceSpec("node-a", "_http._tcp", "devbox-a", 8080)
  *     .withNetworkId("office-a")
  *     .addTag("stable")
  *     .insertMetadata("role", "api");
@@ -56,7 +56,7 @@ public final class AnnounceSpec {
      * 创建一个最小可用的注册规格.
      *
      * @param nodeId 节点持久标识, 调用方应自行保证跨重启稳定
-     * @param service 服务名, 例如 `_demo._tcp`
+     * @param service 服务名, 例如 `_http._tcp`, 建议使用 mDNS / DNS-SD 常见的 service type
      * @param displayName 面向人类的显示名
      * @param port 服务端口
      */

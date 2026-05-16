@@ -88,7 +88,7 @@ pub struct LeaseInfo {
 /// 功能简介:
 /// - 用于一次性查询和持续 watch.
 /// - `network_id` 可选, 用于逻辑发现域隔离.
-/// - `service` 为可选单值过滤条件.
+/// - `service` 为可选单值过滤条件, 推荐使用 mDNS / DNS-SD 风格的 service type.
 /// - `tags` 为 "全部满足" 语义, 即返回节点必须包含所有给定 tag.
 /// - `reachability_scopes` 为 "至少有一个重叠" 语义.
 ///
@@ -98,7 +98,7 @@ pub struct LeaseInfo {
 ///
 /// let filter = DiscoveryFilter::new()
 ///     .with_network_id("office-a")
-///     .with_service("_demo._tcp")
+///     .with_service("_http._tcp")
 ///     .add_tag("stable");
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -142,7 +142,7 @@ impl DiscoveryFilter {
     /// 设置服务名过滤条件.
     ///
     /// 参数:
-    /// - `service`: 例如 `_demo._tcp`.
+    /// - `service`: 例如 `_http._tcp`, 形式上接近 mDNS / DNS-SD 常见的 service type.
     ///
     /// 返回值:
     /// - 更新后的过滤器, 便于链式调用.
@@ -270,7 +270,7 @@ pub struct ApiErrorBody {
 /// ```rust
 /// use lnd::AnnounceSpec;
 ///
-/// let spec = AnnounceSpec::new("node-a", "_demo._tcp", "devbox-a", 8080)
+/// let spec = AnnounceSpec::new("node-a", "_http._tcp", "devbox-a", 8080)
 ///     .with_network_id("office-a")
 ///     .add_tag("stable")
 ///     .insert_metadata("version", "1.0.0")
@@ -307,7 +307,7 @@ impl AnnounceSpec {
     ///
     /// 参数:
     /// - `node_id`: 节点持久标识.
-    /// - `service`: 服务名, 例如 `_demo._tcp`.
+    /// - `service`: 服务名, 例如 `_http._tcp`, 建议使用 mDNS / DNS-SD 常见的 service type.
     /// - `display_name`: 面向人类展示的名称.
     /// - `port`: 服务监听端口.
     ///

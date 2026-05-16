@@ -10,7 +10,7 @@ public final class Main {
 
         DiscoveryFilter filter = new DiscoveryFilter()
             .withNetworkId(networkId)
-            .withService("_demo._tcp")
+            .withService("_http._tcp")
             .addTag("stable");
 
         List<String> scopes = client.listReachabilityScopes();

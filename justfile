@@ -5,7 +5,7 @@ bearer_token := "dev-token"
 # Default logical discovery domain used by announce, discover, and watch recipes.
 network_id := "office-a"
 # Default service name used by SDK and CLI examples.
-service := "_demo._tcp"
+service := "_http._tcp"
 # Default service port announced by local recipes.
 port := "8080"
 # Default display name announced by local recipes.

@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     let mut stream = client.watch(
         DiscoveryFilter::new()
             .with_network_id("office-a")
-            .with_service("_demo._tcp"),
+            .with_service("_http._tcp"),
     );
     while let Some(event) = stream.next().await {
         println!("{}", serde_json::to_string_pretty(&event?)?);

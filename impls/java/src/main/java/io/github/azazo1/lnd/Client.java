@@ -55,7 +55,7 @@ import java.util.Set;
  *
  * DiscoveryFilter filter = new DiscoveryFilter()
  *     .withNetworkId(networkId)
- *     .withService("_demo._tcp");
+ *     .withService("_http._tcp");
  * for (String scope : scopes) {
  *     filter.addReachabilityScope(scope);
  * }

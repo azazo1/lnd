@@ -43,7 +43,7 @@ class DiscoveryFilter:
 
     参数:
     - `network_id`: 可选逻辑发现域.
-    - `service`: 可选服务名过滤器.
+    - `service`: 可选服务名过滤器, 推荐使用 mDNS / DNS-SD 风格的 service type.
     - `tags`: 需要全部满足的 tag 列表.
     - `reachability_scopes`: 至少重叠一个即可匹配.
 
@@ -52,7 +52,7 @@ class DiscoveryFilter:
 
     使用示例:
     ```python
-    filter_spec = DiscoveryFilter().with_network_id("office-a").with_service("_demo._tcp")
+    filter_spec = DiscoveryFilter().with_network_id("office-a").with_service("_http._tcp")
     ```
     """
 
@@ -71,7 +71,7 @@ class DiscoveryFilter:
         """设置服务名过滤条件.
 
         参数:
-        - `service`: 例如 `_demo._tcp`.
+        - `service`: 例如 `_http._tcp`, 形式上接近 mDNS / DNS-SD 常见的 service type.
         """
 
         self.service = service
@@ -101,7 +101,7 @@ class AnnounceSpec:
     参数:
     - `network_id`: 可选逻辑发现域.
     - `node_id`: 持久节点标识.
-    - `service`: 服务名.
+    - `service`: 服务名, 建议使用 mDNS / DNS-SD 常见的 service type.
     - `display_name`: 展示名称.
     - `port`: 服务端口.
 

@@ -60,7 +60,7 @@ flowchart LR
 {
   "network_id": "office-a",
   "node_id": "b8bbf1c0-39f5-4598-a703-3b78fd9390ca",
-  "service": "_demo._tcp",
+  "service": "_http._tcp",
   "display_name": "devbox-a",
   "port": 8080,
   "lan_addrs": ["192.168.1.10:8080"],
@@ -80,7 +80,7 @@ flowchart LR
 {
   "network_id": "office-a",
   "node_id": "b8bbf1c0-39f5-4598-a703-3b78fd9390ca",
-  "service": "_demo._tcp",
+  "service": "_http._tcp",
   "display_name": "devbox-a",
   "port": 8080,
   "lan_addrs": ["192.168.1.10:8080"],
@@ -164,7 +164,7 @@ cargo build -p lnd-c-native --release
 
 ```bash
 just server
-just discover --service _demo._tcp --json
+just discover --service _http._tcp --json
 just build-c-native
 just python-wheel
 ```
@@ -237,7 +237,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   announce \
-  --service _demo._tcp \
+  --service _http._tcp \
   --port 8080 \
   --display-name devbox-a \
   --tag stable \
@@ -255,7 +255,7 @@ cargo run --bin lnd-client -- \
   announce \
   --auto-network-id \
   --auto-reachability-scopes \
-  --service _demo._tcp \
+  --service _http._tcp \
   --port 8080 \
   --display-name devbox-a
 ```
@@ -285,7 +285,7 @@ cargo run --bin lnd-client -- \
   --bearer-token dev-token \
   announce \
   --network-id office-a \
-  --service _web._tcp \
+  --service _http._tcp \
   --port 3000 \
   --lan-addr 192.168.1.20 \
   --lan-addr 10.0.0.10:3000 \
@@ -302,7 +302,7 @@ cargo run --bin lnd-client -- \
   discover \
   --network-id office-a \
   --auto-scope-overlap \
-  --service _demo._tcp \
+  --service _http._tcp \
   --tag stable
 ```
 
@@ -314,7 +314,7 @@ cargo run --bin lnd-client -- \
   --bearer-token dev-token \
   discover \
   --auto-scope-overlap \
-  --service _demo._tcp
+  --service _http._tcp
 ```
 
 结构化输出:
@@ -336,7 +336,7 @@ cargo run --bin lnd-client -- \
   --bearer-token dev-token \
   watch \
   --auto-scope-overlap \
-  --service _demo._tcp \
+  --service _http._tcp \
   --json
 ```
 
@@ -381,7 +381,7 @@ async fn main() -> anyhow::Result<()> {
         .map(|scope| scope.scope)
         .collect::<Vec<_>>();
 
-    let spec = AnnounceSpec::new("node-a", "_demo._tcp", "devbox-a", 8080)
+    let spec = AnnounceSpec::new("node-a", "_http._tcp", "devbox-a", 8080)
     .with_network_id(network_id.clone())
     .add_tag("stable")
     .insert_metadata("version", "1.0.0")
@@ -393,7 +393,7 @@ async fn main() -> anyhow::Result<()> {
         .list(
             DiscoveryFilter::new()
                 .with_network_id(network_id)
-                .with_service("_demo._tcp")
+                .with_service("_http._tcp")
                 .with_reachability_scopes(scopes.clone()),
         )
         .await?;
@@ -401,7 +401,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut watch = client.watch(
         DiscoveryFilter::new()
-            .with_service("_demo._tcp")
+            .with_service("_http._tcp")
             .with_reachability_scopes(scopes),
     );
     while let Some(event) = watch.next().await {
@@ -614,7 +614,7 @@ static void on_event(const char *json, void *user_data) {
 int main(void) {
   struct LndClientHandle *client = lnd_client_new("http://127.0.0.1:8765", "dev-token");
   struct LndFilterHandle *filter = lnd_filter_new("office-a");
-  lnd_filter_set_service(filter, "_demo._tcp");
+  lnd_filter_set_service(filter, "_http._tcp");
 
   char *nodes = lnd_discover(client, filter);
   if (nodes == NULL) {
@@ -694,7 +694,7 @@ from lnd import Client, DiscoveryFilter
 with Client("http://127.0.0.1:8765", "dev-token") as client:
     network_id = client.resolve_network_id()
     nodes = client.discover_with_auto_scope_overlap(
-        DiscoveryFilter().with_network_id(network_id).with_service("_demo._tcp").add_tag("stable")
+        DiscoveryFilter().with_network_id(network_id).with_service("_http._tcp").add_tag("stable")
     )
     print(nodes)
 ```
@@ -730,7 +730,7 @@ scopes, err := client.ListReachabilityScopes()
 if err != nil {
     log.Fatal(err)
 }
-filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_demo._tcp").AddTag("stable")
+filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_http._tcp").AddTag("stable")
 for _, scope := range scopes {
     filter = filter.AddReachabilityScope(scope)
 }

@@ -47,7 +47,7 @@ scopes, err := client.ListReachabilityScopes()
 if err != nil {
 	return err
 }
-filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_demo._tcp").AddTag("stable")
+filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_http._tcp").AddTag("stable")
 for _, scope := range scopes {
 	filter = filter.AddReachabilityScope(scope)
 }

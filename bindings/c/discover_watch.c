@@ -21,7 +21,7 @@ int main(void) {
     return 1;
   }
 
-  if (!lnd_filter_set_service(filter, "_demo._tcp")) {
+  if (!lnd_filter_set_service(filter, "_http._tcp")) {
     fprintf(stderr, "set service failed: %s\n", lnd_last_error());
     lnd_filter_free(filter);
     lnd_client_free(client);
