@@ -11,7 +11,7 @@ import java.util.List;
  *
  * <ul>
  *   <li>用于一次性 discover 和持续 watch
- *   <li>`network_id` 为可选逻辑发现域
+ *   <li>`discovery_domain` 为可选逻辑发现域
  *   <li>`service` 为单值过滤条件, 推荐使用 mDNS / DNS-SD 风格的 service type
  *   <li>`tags` 为全部满足语义
  *   <li>`reachability_scopes` 为至少一个重叠语义
@@ -21,13 +21,13 @@ import java.util.List;
  *
  * <pre>{@code
  * DiscoveryFilter filter = new DiscoveryFilter()
- *     .withNetworkId("office-a")
+ *     .withDiscoveryDomain("office-a")
  *     .withService("_http._tcp")
  *     .addTag("stable");
  * }</pre>
  */
 public final class DiscoveryFilter {
-    private String networkId;
+    private String discoveryDomain;
     private String service;
     private final List<String> tags = new ArrayList<String>();
     private final List<String> reachabilityScopes = new ArrayList<String>();
@@ -35,11 +35,11 @@ public final class DiscoveryFilter {
     /**
      * 设置逻辑发现域.
      *
-     * @param networkId 逻辑发现域, 例如 `office-a`
+     * @param discoveryDomain 逻辑发现域, 例如 `office-a`
      * @return 当前对象, 便于链式调用
      */
-    public DiscoveryFilter withNetworkId(String networkId) {
-        this.networkId = networkId;
+    public DiscoveryFilter withDiscoveryDomain(String discoveryDomain) {
+        this.discoveryDomain = discoveryDomain;
         return this;
     }
 
@@ -48,8 +48,8 @@ public final class DiscoveryFilter {
      *
      * @return 当前对象, 便于链式调用
      */
-    public DiscoveryFilter withoutNetworkId() {
-        this.networkId = null;
+    public DiscoveryFilter withoutDiscoveryDomain() {
+        this.discoveryDomain = null;
         return this;
     }
 
@@ -113,10 +113,10 @@ public final class DiscoveryFilter {
     /**
      * 返回当前逻辑发现域.
      *
-     * @return `network_id`, 如果未设置则为 `null`
+     * @return `discovery_domain`, 如果未设置则为 `null`
      */
-    public String getNetworkId() {
-        return networkId;
+    public String getDiscoveryDomain() {
+        return discoveryDomain;
     }
 
     /**
@@ -153,7 +153,7 @@ public final class DiscoveryFilter {
      */
     public DiscoveryFilter copy() {
         return new DiscoveryFilter()
-            .withNetworkId(networkId)
+            .withDiscoveryDomain(discoveryDomain)
             .withService(service)
             .withTags(tags)
             .withReachabilityScopes(reachabilityScopes);

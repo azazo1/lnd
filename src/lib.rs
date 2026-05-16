@@ -19,7 +19,7 @@
 //!     .bearer_token("dev-token")
 //!     .build()?;
 //! let nodes = client
-//!     .list(DiscoveryFilter::new().with_network_id("office-a"))
+//!     .list(DiscoveryFilter::new().with_discovery_domain("office-a"))
 //!     .await?;
 //! println!("nodes = {}", nodes.len());
 //! # Ok(())
@@ -31,10 +31,9 @@ pub mod server;
 pub mod tracing_utils;
 
 pub use client::{
-    AnnounceHandle, ClientBuilder, ClientConfig, DerivedNetworkId, LndClient, ReachabilityScope,
-    discover_nodes_to_json, list_network_id_candidates, list_reachability_scopes,
-    parse_announce_json, parse_filter_json, resolve_announce_addrs_with_defaults,
-    resolve_network_id_with_selection, resolve_reachability_scopes_with_defaults,
+    AnnounceHandle, ClientBuilder, ClientConfig, LndClient, ReachabilityScope,
+    discover_nodes_to_json, list_reachability_scopes, parse_announce_json, parse_filter_json,
+    resolve_announce_addrs_with_defaults, resolve_reachability_scopes_with_defaults,
     watch_event_to_json,
 };
 pub use protocol::{

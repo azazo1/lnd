@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut stream = client.watch(
         DiscoveryFilter::new()
-            .with_network_id("office-a")
+            .with_discovery_domain("office-a")
             .with_service("_http._tcp"),
     );
     while let Some(event) = stream.next().await {

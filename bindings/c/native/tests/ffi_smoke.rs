@@ -36,7 +36,7 @@ async fn ffi_discover_and_watch_work() {
     let server_url = CString::new(format!("http://{}", server.addr)).unwrap();
     let token = CString::new(server.bearer_token.clone()).unwrap();
     let iface = CString::new("lo0").unwrap();
-    let network_id = CString::new("net-a").unwrap();
+    let discovery_domain = CString::new("prod").unwrap();
     let service = CString::new("svc").unwrap();
     let tag = CString::new("alpha").unwrap();
     let display_name = CString::new("node-ffi").unwrap();
@@ -51,7 +51,7 @@ async fn ffi_discover_and_watch_work() {
     assert!(unsafe { lnd_client_set_include_loopback(client, true) });
     assert!(unsafe { lnd_client_enable_interface(client, iface.as_ptr()) });
 
-    let filter = unsafe { lnd_filter_new(network_id.as_ptr()) };
+    let filter = unsafe { lnd_filter_new(discovery_domain.as_ptr()) };
     assert!(!filter.is_null(), "ffi filter init failed");
     assert!(unsafe { lnd_filter_set_service(filter, service.as_ptr()) });
     assert!(unsafe { lnd_filter_add_tag(filter, tag.as_ptr()) });
@@ -63,7 +63,7 @@ async fn ffi_discover_and_watch_work() {
 
     let announce = unsafe {
         lnd_announce_spec_new(
-            network_id.as_ptr(),
+            discovery_domain.as_ptr(),
             node_id.as_ptr(),
             service.as_ptr(),
             display_name.as_ptr(),

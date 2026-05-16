@@ -3,7 +3,7 @@ server_url := "http://127.0.0.1:8765"
 # Default shared bearer token used by local development recipes.
 bearer_token := "dev-token"
 # Default logical discovery domain used by announce, discover, and watch recipes.
-network_id := "office-a"
+discovery_domain := "office-a"
 # Default service name used by SDK and CLI examples.
 service := "_http._tcp"
 # Default service port announced by local recipes.
@@ -74,15 +74,15 @@ client *args:
 
 # Announce one service with default local settings.
 announce *args:
-    cargo run --bin lnd-client -- --server-url {{ server_url }} --bearer-token {{ bearer_token }} announce --network-id {{ network_id }} --service {{ service }} --port {{ port }} --display-name {{ display_name }} {{ args }}
+    cargo run --bin lnd-client -- --server-url {{ server_url }} --bearer-token {{ bearer_token }} announce --discovery-domain {{ discovery_domain }} --service {{ service }} --port {{ port }} --display-name {{ display_name }} {{ args }}
 
 # Discover peers with default server settings.
 discover *args:
-    cargo run --bin lnd-client -- --server-url {{ server_url }} --bearer-token {{ bearer_token }} discover --network-id {{ network_id }} {{ args }}
+    cargo run --bin lnd-client -- --server-url {{ server_url }} --bearer-token {{ bearer_token }} discover --discovery-domain {{ discovery_domain }} {{ args }}
 
 # Watch peer events with default server settings.
 watch *args:
-    cargo run --bin lnd-client -- --server-url {{ server_url }} --bearer-token {{ bearer_token }} watch --network-id {{ network_id }} {{ args }}
+    cargo run --bin lnd-client -- --server-url {{ server_url }} --bearer-token {{ bearer_token }} watch --discovery-domain {{ discovery_domain }} {{ args }}
 
 # Run one Rust example by name.
 example-rust name:

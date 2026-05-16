@@ -11,8 +11,8 @@ use tokio::sync::oneshot;
 
 use lnd_core::client::{
     AnnounceHandle, ClientConfig, ClientError, LndClient, discover_nodes_to_json,
-    list_network_id_candidates, parse_announce_json, parse_filter_json, parse_socket_addrs,
-    resolve_announce_addrs_with_defaults, resolve_network_id_with_selection, watch_event_to_json,
+    parse_announce_json, parse_filter_json, parse_socket_addrs,
+    resolve_announce_addrs_with_defaults, watch_event_to_json,
 };
 use lnd_core::protocol::{AddressSelection, AnnounceSpec, DiscoveryFilter};
 
@@ -617,21 +617,21 @@ pub unsafe extern "C" fn lnd_client_clear_interface_filters(handle: *mut LndClie
 #[unsafe(no_mangle)]
 /// Create a discovery filter handle.
 ///
-/// `network_id` may be null or empty. Service, tag and scope constraints can be
+/// `discovery_domain` may be null or empty. Service, tag and scope constraints can be
 /// added later.
 ///
 /// Returns a new handle on success, or `NULL` on failure. Inspect
 /// `lnd_last_error()` when `NULL` is returned.
 ///
 /// # Safety
-/// `network_id` may be null, otherwise it must be valid UTF-8.
-pub unsafe extern "C" fn lnd_filter_new(network_id: *const c_char) -> *mut LndFilterHandle {
+/// `discovery_domain` may be null, otherwise it must be valid UTF-8.
+pub unsafe extern "C" fn lnd_filter_new(discovery_domain: *const c_char) -> *mut LndFilterHandle {
     ptr_result(catch_ffi(|| {
         let mut filter = DiscoveryFilter::new();
-        if let Some(network_id) = read_optional_cstr(network_id, "network_id")?
-            && !network_id.trim().is_empty()
+        if let Some(discovery_domain) = read_optional_cstr(discovery_domain, "discovery_domain")?
+            && !discovery_domain.trim().is_empty()
         {
-            filter = filter.with_network_id(network_id);
+            filter = filter.with_discovery_domain(discovery_domain);
         }
         Ok(into_handle::<LndFilterState, LndFilterHandle>(
             LndFilterState { filter },
@@ -673,21 +673,21 @@ pub unsafe extern "C" fn lnd_filter_set_service(
 }
 
 #[unsafe(no_mangle)]
-/// Set the logical network_id filter.
+/// Set the logical discovery domain filter.
 ///
-/// Pass null or an empty string to clear the network_id constraint.
+/// Pass null or an empty string to clear the discovery domain constraint.
 ///
 /// # Safety
 /// `handle` must be a live discovery filter handle.
-/// `network_id` may be null, otherwise it must be valid UTF-8.
-pub unsafe extern "C" fn lnd_filter_set_network_id(
+/// `discovery_domain` may be null, otherwise it must be valid UTF-8.
+pub unsafe extern "C" fn lnd_filter_set_discovery_domain(
     handle: *mut LndFilterHandle,
-    network_id: *const c_char,
+    discovery_domain: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
         let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
-        state.filter.network_id =
-            read_optional_cstr(network_id, "network_id")?.filter(|value| !value.trim().is_empty());
+        state.filter.discovery_domain = read_optional_cstr(discovery_domain, "discovery_domain")?
+            .filter(|value| !value.trim().is_empty());
         Ok(())
     }))
 }
@@ -830,52 +830,6 @@ pub unsafe extern "C" fn lnd_discover_json(
 }
 
 #[unsafe(no_mangle)]
-/// Derive one local network_id from the client's default address selection.
-///
-/// This uses the same automatic selection policy as Rust and other SDKs. When
-/// multiple equally valid subnets are visible, the function returns `NULL` and
-/// sets `lnd_last_error()`.
-///
-/// Returns a newly allocated UTF-8 string on success. On failure returns `NULL`
-/// and stores a message in `lnd_last_error()`.
-///
-/// # Safety
-/// `handle` must be a live client handle.
-/// The returned pointer must be released with `lnd_string_free`.
-pub unsafe extern "C" fn lnd_resolve_network_id(handle: *mut LndClientHandle) -> *mut c_char {
-    ptr_result(catch_ffi(|| {
-        let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let network_id =
-            resolve_network_id_with_selection(&state.config.default_address_selection)?;
-        Ok(into_c_string(network_id))
-    }))
-}
-
-#[unsafe(no_mangle)]
-/// List all locally derived network_id candidates as a JSON array.
-///
-/// Each JSON item contains `network_id` and `scope`. This is useful when a
-/// higher level binding wants to show candidate subnets to the caller before
-/// picking one explicitly.
-///
-/// Returns a newly allocated UTF-8 string on success. On failure returns `NULL`
-/// and stores a message in `lnd_last_error()`.
-///
-/// # Safety
-/// `handle` must be a live client handle.
-/// The returned pointer must be released with `lnd_string_free`.
-pub unsafe extern "C" fn lnd_list_network_id_candidates_json(
-    handle: *mut LndClientHandle,
-) -> *mut c_char {
-    ptr_result(catch_ffi(|| {
-        let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let candidates = list_network_id_candidates(&state.config.default_address_selection)?;
-        let json = serde_json::to_string(&candidates)?;
-        Ok(into_c_string(json))
-    }))
-}
-
-#[unsafe(no_mangle)]
 /// Create an announce spec handle.
 ///
 /// The returned spec starts with automatic LAN address discovery enabled and
@@ -887,7 +841,7 @@ pub unsafe extern "C" fn lnd_list_network_id_candidates_json(
 /// # Safety
 /// string arguments must be valid UTF-8.
 pub unsafe extern "C" fn lnd_announce_spec_new(
-    network_id: *const c_char,
+    discovery_domain: *const c_char,
     node_id: *const c_char,
     service: *const c_char,
     display_name: *const c_char,
@@ -900,10 +854,10 @@ pub unsafe extern "C" fn lnd_announce_spec_new(
             read_cstr(display_name, "display_name")?,
             port,
         );
-        if let Some(network_id) = read_optional_cstr(network_id, "network_id")?
-            && !network_id.trim().is_empty()
+        if let Some(discovery_domain) = read_optional_cstr(discovery_domain, "discovery_domain")?
+            && !discovery_domain.trim().is_empty()
         {
-            spec = spec.with_network_id(network_id);
+            spec = spec.with_discovery_domain(discovery_domain);
         }
         Ok(into_handle::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
             LndAnnounceSpecState { spec },
@@ -923,25 +877,25 @@ pub unsafe extern "C" fn lnd_announce_spec_free(handle: *mut LndAnnounceSpecHand
 }
 
 #[unsafe(no_mangle)]
-/// Set the announce network_id.
+/// Set the announce discovery domain.
 ///
 /// Returns `true` on success. On failure returns `false` and sets
 /// `lnd_last_error()`.
 ///
 /// # Safety
 /// `handle` must be a live announce spec handle.
-/// `network_id` must be valid UTF-8.
-pub unsafe extern "C" fn lnd_announce_spec_set_network_id(
+/// `discovery_domain` must be valid UTF-8.
+pub unsafe extern "C" fn lnd_announce_spec_set_discovery_domain(
     handle: *mut LndAnnounceSpecHandle,
-    network_id: *const c_char,
+    discovery_domain: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
         let state = cast_mut::<LndAnnounceSpecState, LndAnnounceSpecHandle>(
             handle,
             "announce spec handle",
         )?;
-        state.spec.network_id =
-            read_optional_cstr(network_id, "network_id")?.filter(|value| !value.trim().is_empty());
+        state.spec.discovery_domain = read_optional_cstr(discovery_domain, "discovery_domain")?
+            .filter(|value| !value.trim().is_empty());
         Ok(())
     }))
 }

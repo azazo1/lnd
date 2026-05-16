@@ -34,8 +34,6 @@ Java SDK 现在覆盖:
 - `AddressSelection`
 - `AnnounceHandle`
 - `WatchHandle`
-- `resolveNetworkId()`
-- `listNetworkIdCandidates()`
 - `listReachabilityScopes()`
 - `resolveAnnounceAddrs()`
 - `resolveReachabilityScopes()`
@@ -48,7 +46,7 @@ Java SDK 现在覆盖:
 
 协议语义与 Rust / Go 保持一致:
 
-- `network_id` 可选
+- `discovery_domain` 可选
 - `reachability_scopes` 采用 overlap 匹配
 - 自动 LAN 地址收集
 - 自动子网前缀推导
@@ -82,10 +80,9 @@ import java.util.List;
 public final class Main {
     public static void main(String[] args) throws Exception {
         Client client = new Client("http://127.0.0.1:8765", "dev-token");
-        String networkId = client.resolveNetworkId();
 
         DiscoveryFilter filter = new DiscoveryFilter()
-            .withNetworkId(networkId)
+            .withDiscoveryDomain("office-a")
             .withService("_http._tcp")
             .addTag("stable");
 

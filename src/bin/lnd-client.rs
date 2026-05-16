@@ -36,9 +36,7 @@ enum Command {
 #[derive(Debug, Args)]
 struct FilterArgs {
     #[arg(long)]
-    network_id: Option<String>,
-    #[arg(long, default_value_t = false)]
-    auto_network_id: bool,
+    discovery_domain: Option<String>,
     #[arg(long, default_value_t = true)]
     auto_scope_overlap: bool,
     #[arg(long = "scope")]
@@ -54,9 +52,7 @@ struct FilterArgs {
 #[derive(Debug, Args)]
 struct AnnounceArgs {
     #[arg(long)]
-    network_id: Option<String>,
-    #[arg(long, default_value_t = false)]
-    auto_network_id: bool,
+    discovery_domain: Option<String>,
     #[arg(long, default_value_t = true)]
     auto_reachability_scopes: bool,
     #[arg(long = "scope")]
@@ -147,7 +143,6 @@ async fn load_or_create_node_id(path: &Path) -> anyhow::Result<String> {
 }
 
 async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> {
-    let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
     let node_id = match args.node_id {
         Some(node_id) => node_id,
         None => {
@@ -163,7 +158,7 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
         Some(parse_socket_addrs(&args.lan_addrs, args.port)?)
     };
     let spec = AnnounceSpec {
-        network_id,
+        discovery_domain: args.discovery_domain,
         node_id,
         service: args.service,
         display_name: args.display_name,
@@ -208,10 +203,9 @@ async fn announce(client: &LndClient, args: AnnounceArgs) -> anyhow::Result<()> 
 }
 
 async fn discover(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
-    let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
     let mut filter = DiscoveryFilter::new();
-    if let Some(network_id) = network_id {
-        filter = filter.with_network_id(network_id);
+    if let Some(discovery_domain) = args.discovery_domain {
+        filter = filter.with_discovery_domain(discovery_domain);
     }
     if let Some(service) = args.service {
         filter = filter.with_service(service);
@@ -247,10 +241,9 @@ async fn discover(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
 }
 
 async fn watch(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
-    let network_id = resolve_network_id_arg(client, args.network_id, args.auto_network_id)?;
     let mut filter = DiscoveryFilter::new();
-    if let Some(network_id) = network_id {
-        filter = filter.with_network_id(network_id);
+    if let Some(discovery_domain) = args.discovery_domain {
+        filter = filter.with_discovery_domain(discovery_domain);
     }
     if let Some(service) = args.service {
         filter = filter.with_service(service);
@@ -274,20 +267,4 @@ async fn watch(client: &LndClient, args: FilterArgs) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-fn resolve_network_id_arg(
-    client: &LndClient,
-    network_id: Option<String>,
-    auto_network_id: bool,
-) -> anyhow::Result<Option<String>> {
-    match (network_id, auto_network_id) {
-        (Some(network_id), false) => Ok(Some(network_id)),
-        (Some(network_id), true) => Ok(Some(network_id)),
-        (None, true) => client
-            .resolve_network_id()
-            .map(Some)
-            .map_err(|error| anyhow::anyhow!(error.to_string())),
-        (None, false) => Ok(None),
-    }
 }

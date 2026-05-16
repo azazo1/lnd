@@ -5,9 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"encoding/hex"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -25,7 +23,7 @@ const (
 	//
 	// The background announce loop renews at about one third of this value.
 	// Increase it to reduce server traffic, or lower it to remove stale peers sooner.
-	DefaultTTLSeconds          uint64 = 30
+	DefaultTTLSeconds uint64 = 30
 	// DefaultSSEKeepaliveSeconds is the keepalive cadence emitted by the server watch stream.
 	//
 	// Watch clients do not need to send heartbeats themselves, but long running
@@ -35,18 +33,18 @@ const (
 
 // DiscoveryFilter describes which peers should be listed or watched.
 //
-// NetworkID is optional and acts as a logical discovery domain. Service and
-// Tags narrow the result set further. ReachabilityScopes require at least one
-// overlap with the remote node.
+// DiscoveryDomain is optional and acts as a logical discovery domain. Service
+// and Tags narrow the result set further. ReachabilityScopes require at least
+// one overlap with the remote node.
 //
 // Example:
 //
 //	filter := lnd.NewDiscoveryFilter().
-//		WithNetworkID("office-net").
+//		WithDiscoveryDomain("office-net").
 //		WithService("_http._tcp").
 //		AddTag("printer")
 type DiscoveryFilter struct {
-	NetworkID          *string  `json:"network_id,omitempty"`
+	DiscoveryDomain    *string  `json:"discovery_domain,omitempty"`
 	Service            string   `json:"service,omitempty"`
 	Tags               []string `json:"tags,omitempty"`
 	ReachabilityScopes []string `json:"reachability_scopes,omitempty"`
@@ -57,9 +55,9 @@ func NewDiscoveryFilter() DiscoveryFilter {
 	return DiscoveryFilter{}
 }
 
-// WithNetworkID sets the logical discovery domain and returns the updated copy.
-func (f DiscoveryFilter) WithNetworkID(networkID string) DiscoveryFilter {
-	f.NetworkID = &networkID
+// WithDiscoveryDomain sets the logical discovery domain and returns the updated copy.
+func (f DiscoveryFilter) WithDiscoveryDomain(discoveryDomain string) DiscoveryFilter {
+	f.DiscoveryDomain = &discoveryDomain
 	return f
 }
 
@@ -94,23 +92,23 @@ func (f DiscoveryFilter) AddReachabilityScope(scope string) DiscoveryFilter {
 // Example:
 //
 //	spec := lnd.NewAnnounceSpec("node-1", "_http._tcp", "Demo Node", 8080).
-//		WithNetworkID("office-net").
+//		WithDiscoveryDomain("office-net").
 //		AddTag("blue").
 //		InsertMetadata("role", "api")
 type AnnounceSpec struct {
-	NetworkID            *string           `json:"network_id,omitempty"`
-	NodeID               string            `json:"node_id"`
-	Service              string            `json:"service"`
-	DisplayName          string            `json:"display_name"`
-	Port                 uint16            `json:"port"`
-	LanAddrs             []string          `json:"lan_addrs,omitempty"`
-	AutoLanAddrs         bool              `json:"auto_lan_addrs"`
-	ReachabilityScopes   []string          `json:"reachability_scopes,omitempty"`
-	AutoReachabilityScopes bool            `json:"auto_reachability_scopes"`
-	Tags                 []string          `json:"tags,omitempty"`
-	Metadata             map[string]string `json:"metadata,omitempty"`
-	TTLSeconds           uint64            `json:"ttl_secs"`
-	AddressSelection     *AddressSelection `json:"address_selection,omitempty"`
+	DiscoveryDomain        *string           `json:"discovery_domain,omitempty"`
+	NodeID                 string            `json:"node_id"`
+	Service                string            `json:"service"`
+	DisplayName            string            `json:"display_name"`
+	Port                   uint16            `json:"port"`
+	LanAddrs               []string          `json:"lan_addrs,omitempty"`
+	AutoLanAddrs           bool              `json:"auto_lan_addrs"`
+	ReachabilityScopes     []string          `json:"reachability_scopes,omitempty"`
+	AutoReachabilityScopes bool              `json:"auto_reachability_scopes"`
+	Tags                   []string          `json:"tags,omitempty"`
+	Metadata               map[string]string `json:"metadata,omitempty"`
+	TTLSeconds             uint64            `json:"ttl_secs"`
+	AddressSelection       *AddressSelection `json:"address_selection,omitempty"`
 }
 
 // NewAnnounceSpec creates an announce specification with sensible defaults.
@@ -124,19 +122,19 @@ type AnnounceSpec struct {
 // DefaultTTLSeconds unless overridden.
 func NewAnnounceSpec(nodeID, service, displayName string, port uint16) AnnounceSpec {
 	return AnnounceSpec{
-		NodeID:                nodeID,
-		Service:               service,
-		DisplayName:           displayName,
-		Port:                  port,
-		AutoLanAddrs:          true,
+		NodeID:                 nodeID,
+		Service:                service,
+		DisplayName:            displayName,
+		Port:                   port,
+		AutoLanAddrs:           true,
 		AutoReachabilityScopes: true,
-		TTLSeconds:            DefaultTTLSeconds,
+		TTLSeconds:             DefaultTTLSeconds,
 	}
 }
 
-// WithNetworkID sets the logical discovery domain and returns the updated copy.
-func (s AnnounceSpec) WithNetworkID(networkID string) AnnounceSpec {
-	s.NetworkID = &networkID
+// WithDiscoveryDomain sets the logical discovery domain and returns the updated copy.
+func (s AnnounceSpec) WithDiscoveryDomain(discoveryDomain string) AnnounceSpec {
+	s.DiscoveryDomain = &discoveryDomain
 	return s
 }
 
@@ -254,7 +252,7 @@ type LeaseInfo struct {
 
 // DiscoveredNode is the canonical peer record returned by list and watch calls.
 type DiscoveredNode struct {
-	NetworkID          *string           `json:"network_id"`
+	DiscoveryDomain    *string           `json:"discovery_domain"`
 	NodeID             string            `json:"node_id"`
 	Service            string            `json:"service"`
 	DisplayName        string            `json:"display_name"`
@@ -270,9 +268,9 @@ type DiscoveredNode struct {
 //
 // Type is one of snapshot, upsert, remove, reset or keepalive.
 type DiscoveryEvent struct {
-	Type  string            `json:"type"`
-	Nodes []DiscoveredNode  `json:"nodes,omitempty"`
-	Node  *DiscoveredNode   `json:"node,omitempty"`
+	Type  string           `json:"type"`
+	Nodes []DiscoveredNode `json:"nodes,omitempty"`
+	Node  *DiscoveredNode  `json:"node,omitempty"`
 }
 
 // DiscoveryEventEnvelope wraps a watch event with its latest resume cursor.
@@ -325,26 +323,20 @@ func WithReconnectBackoff(min, max time.Duration) ClientOption {
 // Example:
 //
 //	client := lnd.NewClient("https://registry.example.com", "secret-token")
-//	nodes, err := client.Discover(context.Background(), lnd.NewDiscoveryFilter("office-net"))
+//	nodes, err := client.Discover(
+//		context.Background(),
+//		lnd.NewDiscoveryFilter().WithDiscoveryDomain("office-net"),
+//	)
 //	if err != nil {
 //		return err
 //	}
 //	_ = nodes
 type Client struct {
-	baseURL  string
-	token    string
-	http     *http.Client
-	backoff  backoffConfig
-	address  AddressSelection
-}
-
-// DerivedNetworkID describes one locally derived discovery domain candidate.
-//
-// NetworkID is the stable identifier that can be sent to the server. Scope is
-// a human readable subnet prefix such as 192.168.1.0/24.
-type DerivedNetworkID struct {
-	NetworkID string
-	Scope     string
+	baseURL string
+	token   string
+	http    *http.Client
+	backoff backoffConfig
+	address AddressSelection
 }
 
 // NewClient creates a reusable Go SDK client.
@@ -383,20 +375,6 @@ func (c *Client) Discover(ctx context.Context, filter DiscoveryFilter) ([]Discov
 		return nil, err
 	}
 	return response.Nodes, nil
-}
-
-// ResolveNetworkID derives one local discovery domain identifier from the
-// client's current automatic address selection policy.
-//
-// When multiple equally valid local subnets are visible, the method returns an
-// error and the caller should pick an explicit network ID instead.
-func (c *Client) ResolveNetworkID() (string, error) {
-	return ResolveNetworkIDWithSelection(c.address)
-}
-
-// ListNetworkIDCandidates returns all locally derived discovery domain candidates.
-func (c *Client) ListNetworkIDCandidates() ([]DerivedNetworkID, error) {
-	return ListNetworkIDCandidates(c.address)
 }
 
 // ListReachabilityScopes returns all locally derived subnet scopes.
@@ -442,7 +420,7 @@ func (c *Client) AnnounceOnce(ctx context.Context, spec AnnounceSpec) (Discovere
 }
 
 type announcePayload struct {
-	NetworkID          *string           `json:"network_id,omitempty"`
+	DiscoveryDomain    *string           `json:"discovery_domain,omitempty"`
 	NodeID             string            `json:"node_id"`
 	Service            string            `json:"service"`
 	DisplayName        string            `json:"display_name"`
@@ -678,8 +656,8 @@ func (c *Client) doDiscover(ctx context.Context, filter DiscoveryFilter) (discov
 
 func (c *Client) listURL(filter DiscoveryFilter) string {
 	values := url.Values{}
-	if filter.NetworkID != nil && *filter.NetworkID != "" {
-		values.Set("network_id", *filter.NetworkID)
+	if filter.DiscoveryDomain != nil && *filter.DiscoveryDomain != "" {
+		values.Set("discovery_domain", *filter.DiscoveryDomain)
 	}
 	if filter.Service != "" {
 		values.Set("service", filter.Service)
@@ -695,8 +673,8 @@ func (c *Client) listURL(filter DiscoveryFilter) string {
 
 func (c *Client) watchURL(filter DiscoveryFilter, cursor *uint64) string {
 	values := url.Values{}
-	if filter.NetworkID != nil && *filter.NetworkID != "" {
-		values.Set("network_id", *filter.NetworkID)
+	if filter.DiscoveryDomain != nil && *filter.DiscoveryDomain != "" {
+		values.Set("discovery_domain", *filter.DiscoveryDomain)
 	}
 	if filter.Service != "" {
 		values.Set("service", filter.Service)
@@ -914,7 +892,7 @@ func (c *Client) buildAnnouncement(spec AnnounceSpec) (announcePayload, error) {
 		return announcePayload{}, err
 	}
 	return announcePayload{
-		NetworkID:          spec.NetworkID,
+		DiscoveryDomain:    spec.DiscoveryDomain,
 		NodeID:             spec.NodeID,
 		Service:            spec.Service,
 		DisplayName:        spec.DisplayName,
@@ -1018,16 +996,13 @@ func ResolvePrivateIPv4Addrs(port uint16) ([]string, error) {
 	return ResolveLanAddrsWithSelection(port, DefaultAddressSelection())
 }
 
-// ListNetworkIDCandidates derives candidate discovery domains from local interfaces.
-//
-// IPv4 candidates are built from ip/netmask subnet prefixes. IPv6 candidates
-// are built from ip/prefix subnet prefixes when IPv6 is enabled by selection.
-func ListNetworkIDCandidates(selection AddressSelection) ([]DerivedNetworkID, error) {
+// ListReachabilityScopes derives local subnet scopes from local interfaces.
+func ListReachabilityScopes(selection AddressSelection) ([]string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
-	candidates := make([]DerivedNetworkID, 0)
+	scopes := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, iface := range interfaces {
 		if !selection.allowsInterface(iface.Name) {
@@ -1054,10 +1029,7 @@ func ListNetworkIDCandidates(selection AddressSelection) ([]DerivedNetworkID, er
 					continue
 				}
 				seen[key] = struct{}{}
-				candidates = append(candidates, DerivedNetworkID{
-					NetworkID: "lan-" + shortStableHex(key),
-					Scope:     scope,
-				})
+				scopes = append(scopes, scope)
 			case *net.IPAddr:
 				if !selection.allowsIP(value.IP, isLoopback) {
 					continue
@@ -1065,68 +1037,8 @@ func ListNetworkIDCandidates(selection AddressSelection) ([]DerivedNetworkID, er
 			}
 		}
 	}
-	slices.SortFunc(candidates, func(left, right DerivedNetworkID) int {
-		if left.Scope < right.Scope {
-			return -1
-		}
-		if left.Scope > right.Scope {
-			return 1
-		}
-		if left.NetworkID < right.NetworkID {
-			return -1
-		}
-		if left.NetworkID > right.NetworkID {
-			return 1
-		}
-		return 0
-	})
-	return candidates, nil
-}
-
-// ListReachabilityScopes derives local subnet scopes from local interfaces.
-func ListReachabilityScopes(selection AddressSelection) ([]string, error) {
-	candidates, err := ListNetworkIDCandidates(selection)
-	if err != nil {
-		return nil, err
-	}
-	scopes := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		scopes = append(scopes, candidate.Scope)
-	}
+	slices.Sort(scopes)
 	return dedupeStrings(scopes), nil
-}
-
-// ResolveNetworkIDWithSelection derives one local discovery domain identifier.
-//
-// It prefers a single private IPv4 subnet when multiple candidates exist.
-func ResolveNetworkIDWithSelection(selection AddressSelection) (string, error) {
-	candidates, err := ListNetworkIDCandidates(selection)
-	if err != nil {
-		return "", err
-	}
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("failed to derive network_id: no eligible local network prefix found")
-	}
-	if len(candidates) == 1 {
-		return candidates[0].NetworkID, nil
-	}
-	ipv4Candidates := make([]DerivedNetworkID, 0)
-	for _, candidate := range candidates {
-		if strings.Contains(candidate.Scope, ".") {
-			ipv4Candidates = append(ipv4Candidates, candidate)
-		}
-	}
-	if len(ipv4Candidates) == 1 {
-		return ipv4Candidates[0].NetworkID, nil
-	}
-	parts := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		parts = append(parts, candidate.NetworkID+"("+candidate.Scope+")")
-	}
-	return "", fmt.Errorf(
-		"failed to derive network_id: multiple eligible network prefixes found: %s; specify network_id explicitly or narrow interfaces",
-		strings.Join(parts, ", "),
-	)
 }
 
 func dedupeStrings(values []string) []string {
@@ -1155,12 +1067,4 @@ func deriveScopeFromIPNet(value *net.IPNet) (string, bool) {
 	network := ipv6.Mask(value.Mask)
 	ones, _ := value.Mask.Size()
 	return fmt.Sprintf("%s/%d", network.String(), ones), true
-}
-
-func shortStableHex(value string) string {
-	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(value))
-	var buf [8]byte
-	sum := hasher.Sum(buf[:0])
-	return hex.EncodeToString(sum)
 }

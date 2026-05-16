@@ -18,7 +18,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -35,7 +34,7 @@ import java.util.Set;
  *   <li>执行一次性 announce
  *   <li>启动后台 announce 续租循环
  *   <li>启动后台 watch 监听循环
- *   <li>推导 `network_id` 和 `reachability_scopes`
+ *   <li>推导 `reachability_scopes`
  * </ul>
  *
  * <p>设计目标:
@@ -50,11 +49,10 @@ import java.util.Set;
  *
  * <pre>{@code
  * Client client = new Client("http://127.0.0.1:8765", "dev-token");
- * String networkId = client.resolveNetworkId();
  * List<String> scopes = client.listReachabilityScopes();
  *
  * DiscoveryFilter filter = new DiscoveryFilter()
- *     .withNetworkId(networkId)
+ *     .withDiscoveryDomain("office-a")
  *     .withService("_http._tcp");
  * for (String scope : scopes) {
  *     filter.addReachabilityScope(scope);
@@ -413,104 +411,6 @@ public final class Client {
     }
 
     /**
-     * 返回当前 client 视角下可推导的 `network_id`.
-     *
-     * <p>异常语义:
-     *
-     * <ul>
-     *   <li>没有候选时抛错
-     *   <li>多个同等候选时抛错
-     *   <li>仅有一个 IPv4 候选时优先选择它
-     * </ul>
-     *
-     * @return 推导出的 `network_id`
-     * @throws LndException 当没有唯一候选时抛出
-     */
-    public String resolveNetworkId() throws LndException {
-        return resolveNetworkId(defaultAddressSelection);
-    }
-
-    /**
-     * 使用给定地址选择策略推导一个 `network_id`.
-     *
-     * @param selection 地址选择策略
-     * @return 推导出的 `network_id`
-     * @throws LndException 当没有唯一候选时抛出
-     */
-    public static String resolveNetworkId(AddressSelection selection) throws LndException {
-        List<DerivedNetworkId> candidates = listNetworkIdCandidates(selection);
-        if (candidates.isEmpty()) {
-            throw new LndException("failed to derive network_id: no eligible local network prefix found");
-        }
-        if (candidates.size() == 1) {
-            return candidates.get(0).getNetworkId();
-        }
-        List<DerivedNetworkId> ipv4Candidates = new ArrayList<DerivedNetworkId>();
-        for (DerivedNetworkId candidate : candidates) {
-            if (candidate.getScope().indexOf('.') >= 0) {
-                ipv4Candidates.add(candidate);
-            }
-        }
-        if (ipv4Candidates.size() == 1) {
-            return ipv4Candidates.get(0).getNetworkId();
-        }
-        StringBuilder visible = new StringBuilder();
-        for (int index = 0; index < candidates.size(); index++) {
-            if (index > 0) {
-                visible.append(", ");
-            }
-            DerivedNetworkId candidate = candidates.get(index);
-            visible.append(candidate.getNetworkId()).append('(').append(candidate.getScope()).append(')');
-        }
-        throw new LndException(
-            "failed to derive network_id: multiple eligible network prefixes found: "
-                + visible
-                + "; specify network_id explicitly or narrow interfaces"
-        );
-    }
-
-    /**
-     * 列出当前 client 视角下的所有 `network_id` 候选项.
-     *
-     * @return 已排序候选列表
-     * @throws LndException 当枚举本机接口失败时抛出
-     */
-    public List<DerivedNetworkId> listNetworkIdCandidates() throws LndException {
-        return listNetworkIdCandidates(defaultAddressSelection);
-    }
-
-    /**
-     * 使用给定地址选择策略列出所有 `network_id` 候选项.
-     *
-     * @param selection 地址选择策略
-     * @return 已排序候选列表
-     * @throws LndException 当枚举本机接口失败时抛出
-     */
-    public static List<DerivedNetworkId> listNetworkIdCandidates(AddressSelection selection) throws LndException {
-        List<DerivedNetworkId> candidates = collectDerivedNetworkIds(selection);
-        Collections.sort(candidates, new Comparator<DerivedNetworkId>() {
-            @Override
-            public int compare(DerivedNetworkId left, DerivedNetworkId right) {
-                int byScope = left.getScope().compareTo(right.getScope());
-                if (byScope != 0) {
-                    return byScope;
-                }
-                return left.getNetworkId().compareTo(right.getNetworkId());
-            }
-        });
-        List<DerivedNetworkId> deduped = new ArrayList<DerivedNetworkId>();
-        String last = null;
-        for (DerivedNetworkId candidate : candidates) {
-            String key = candidate.getNetworkId() + "@" + candidate.getScope();
-            if (!key.equals(last)) {
-                deduped.add(candidate);
-                last = key;
-            }
-        }
-        return Collections.unmodifiableList(deduped);
-    }
-
-    /**
      * 列出当前 client 视角下的所有 reachability scopes.
      *
      * @return 已排序的 scope 列表
@@ -528,14 +428,7 @@ public final class Client {
      * @throws LndException 当枚举本机接口失败时抛出
      */
     public static List<String> listReachabilityScopes(AddressSelection selection) throws LndException {
-        List<DerivedNetworkId> candidates = listNetworkIdCandidates(selection);
-        Set<String> scopes = new LinkedHashSet<String>();
-        for (DerivedNetworkId candidate : candidates) {
-            scopes.add(candidate.getScope());
-        }
-        List<String> values = new ArrayList<String>(scopes);
-        Collections.sort(values);
-        return Collections.unmodifiableList(values);
+        return collectReachabilityScopes(selection);
     }
 
     /**
@@ -722,8 +615,8 @@ public final class Client {
 
     private Map<String, Object> buildAnnouncementPayload(AnnounceSpec spec) throws LndException {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        if (spec.getNetworkId() != null && spec.getNetworkId().length() > 0) {
-            payload.put("network_id", spec.getNetworkId());
+        if (spec.getDiscoveryDomain() != null && spec.getDiscoveryDomain().length() > 0) {
+            payload.put("discovery_domain", spec.getDiscoveryDomain());
         }
         payload.put("node_id", spec.getNodeId());
         payload.put("service", spec.getService());
@@ -829,8 +722,8 @@ public final class Client {
 
     private Map<String, List<String>> queryMap(DiscoveryFilter filter, Long cursor) {
         Map<String, List<String>> values = new LinkedHashMap<String, List<String>>();
-        if (filter.getNetworkId() != null && filter.getNetworkId().length() > 0) {
-            values.put("network_id", Collections.singletonList(filter.getNetworkId()));
+        if (filter.getDiscoveryDomain() != null && filter.getDiscoveryDomain().length() > 0) {
+            values.put("discovery_domain", Collections.singletonList(filter.getDiscoveryDomain()));
         }
         if (filter.getService() != null && filter.getService().length() > 0) {
             values.put("service", Collections.singletonList(filter.getService()));
@@ -947,7 +840,7 @@ public final class Client {
     private static DiscoveredNode parseDiscoveredNode(Map<String, Object> object) throws LndException {
         LeaseInfo lease = parseLeaseInfo(Json.asObject(object.get("lease"), "lease"));
         return new DiscoveredNode(
-            Json.optString(object, "network_id"),
+            Json.optString(object, "discovery_domain"),
             Json.requireString(object, "node_id"),
             Json.requireString(object, "service"),
             Json.requireString(object, "display_name"),
@@ -995,9 +888,9 @@ public final class Client {
         }
     }
 
-    private static List<DerivedNetworkId> collectDerivedNetworkIds(AddressSelection selection) throws LndException {
+    private static List<String> collectReachabilityScopes(AddressSelection selection) throws LndException {
         try {
-            List<DerivedNetworkId> candidates = new ArrayList<DerivedNetworkId>();
+            Set<String> scopes = new LinkedHashSet<String>();
             NetworkInterface[] interfaces = Collections.list(NetworkInterface.getNetworkInterfaces()).toArray(new NetworkInterface[0]);
             for (NetworkInterface networkInterface : interfaces) {
                 if (!selection.allowsInterface(networkInterface.getName())) {
@@ -1012,14 +905,16 @@ public final class Client {
                     short prefixLength = interfaceAddress.getNetworkPrefixLength();
                     if (address instanceof Inet4Address) {
                         String scope = ipv4Scope((Inet4Address) address, prefixLength);
-                        candidates.add(new DerivedNetworkId("lan-" + shortStableHex("v4:" + scope), scope));
+                        scopes.add(scope);
                     } else if (address instanceof Inet6Address) {
                         String scope = ipv6Scope((Inet6Address) address, prefixLength);
-                        candidates.add(new DerivedNetworkId("lan-" + shortStableHex("v6:" + scope), scope));
+                        scopes.add(scope);
                     }
                 }
             }
-            return candidates;
+            List<String> values = new ArrayList<String>(scopes);
+            Collections.sort(values);
+            return Collections.unmodifiableList(values);
         } catch (IOException error) {
             throw new LndException("failed to enumerate local interfaces", error);
         }
@@ -1148,17 +1043,6 @@ public final class Client {
         List<String> sorted = new ArrayList<String>(deduped);
         Collections.sort(sorted);
         return Collections.unmodifiableList(sorted);
-    }
-
-    private static String shortStableHex(String value) {
-        long hash = 0xcbf29ce484222325L;
-        long prime = 0x100000001b3L;
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        for (byte b : bytes) {
-            hash ^= (long) (b & 0xff);
-            hash *= prime;
-        }
-        return String.format("%016x", hash);
     }
 
     private static String trimTrailingSlash(String value) {

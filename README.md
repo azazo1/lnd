@@ -19,8 +19,8 @@ v1 协议为 REST + SSE:
 ## 特性
 
 - 中心化租约注册表, 避免 mDNS 在复杂网络环境中的组播不稳定问题
-- 基于 `network_id + service + tags + reachability_scopes overlap` 的发现过滤
-- `network_id` 可选, 用于逻辑隔离
+- 基于 `discovery_domain + service + tags + reachability_scopes overlap` 的发现过滤
+- `discovery_domain` 可选, 用于逻辑隔离
 - `reachability_scopes` 自动基于本机子网前缀收集, 用于多网卡和多子网可达性重叠匹配
 - 客户端带抖动续租, 指数退避重连, SSE 断线重连和 cursor 恢复
 - 默认自动收集非 loopback 的私网 IPv4, 也支持 loopback, IPv6, 接口白名单和黑名单
@@ -46,8 +46,8 @@ v1 协议为 REST + SSE:
 flowchart LR
     A["Node A"] -->|"PUT /v1/nodes/{node_id}"| S["lnd-server"]
     B["Node B"] -->|"PUT /v1/nodes/{node_id}"| S
-    C["Watcher"] -->|"GET /v1/watch?network_id=...&scope=..."| S
-    D["Discoverer"] -->|"GET /v1/nodes?network_id=...&scope=..."| S
+    C["Watcher"] -->|"GET /v1/watch?discovery_domain=...&scope=..."| S
+    D["Discoverer"] -->|"GET /v1/nodes?discovery_domain=...&scope=..."| S
     S -->|"SSE: snapshot/upsert/remove"| C
     S -->|"JSON snapshot"| D
 ```
@@ -58,7 +58,7 @@ flowchart LR
 
 ```json
 {
-  "network_id": "office-a",
+  "discovery_domain": "office-a",
   "node_id": "b8bbf1c0-39f5-4598-a703-3b78fd9390ca",
   "service": "_http._tcp",
   "display_name": "devbox-a",
@@ -78,7 +78,7 @@ flowchart LR
 
 ```json
 {
-  "network_id": "office-a",
+  "discovery_domain": "office-a",
   "node_id": "b8bbf1c0-39f5-4598-a703-3b78fd9390ca",
   "service": "_http._tcp",
   "display_name": "devbox-a",
@@ -112,35 +112,23 @@ flowchart LR
   - `include_link_local_ipv4 = false`
   - `include_ipv6 = false`
 
-## `network_id` 与 `reachability_scopes`
+## `discovery_domain` 与 `reachability_scopes`
 
 当前推荐模型是双层的:
 
-- `network_id`: 可选逻辑发现域, 用于区分 `dev`, `staging`, `prod` 或不同租户
+- `discovery_domain`: 可选逻辑发现域, 用于区分 `dev`, `staging`, `prod` 或不同租户
 - `reachability_scopes`: 本机子网前缀列表, 用于自动可达性 overlap 匹配
 
 `reachability_scopes` 的自动推导规则:
 
-当前自动推导规则:
-
 - IPv4 使用 `ip & netmask` 得到子网前缀, 例如 `192.168.1.0/24`
 - IPv6 使用 `ip/prefixlen` 得到前缀, 例如 `fd12:3456:789a:1::/64`
-- 再把前缀编码成稳定的 `lan-<hex>` 形式, 例如 `lan-ec3a7b1765ff30c6`
-
-当前没有使用网关 MAC 作为默认标识策略. 原因是默认网关和邻居表的获取在不同平台上差异较大, 对容器和受限环境也不够稳定. 子网前缀指纹更容易在 Rust、Go、Python 和 C ABI 之间保持一致行为.
 
 使用建议:
 
 - 零配置场景: 只依赖 `reachability_scopes`
-- 严肃部署: `network_id + reachability_scopes overlap`
-- 多网卡场景: 保留自动 `reachability_scopes`, 必要时显式指定 `network_id`
-
-可以先列出候选:
-
-- Rust: `client.list_network_id_candidates()`
-- Python: `client.list_network_id_candidates()`
-- Go: `client.ListNetworkIDCandidates()`
-- C ABI: `lnd_list_network_id_candidates_json()`
+- 严肃部署: `discovery_domain + reachability_scopes overlap`
+- 多网卡场景: 保留自动 `reachability_scopes`, 必要时显式指定 `discovery_domain`
 
 可达域候选:
 
@@ -246,20 +234,6 @@ cargo run --bin lnd-client -- \
   --metadata role=api
 ```
 
-如果希望自动推导 `network_id`:
-
-```bash
-cargo run --bin lnd-client -- \
-  --server-url http://127.0.0.1:8765 \
-  --bearer-token dev-token \
-  announce \
-  --auto-network-id \
-  --auto-reachability-scopes \
-  --service _http._tcp \
-  --port 8080 \
-  --display-name devbox-a
-```
-
 常用参数:
 
 - `--server-url`: client 连接的 server base URL
@@ -284,7 +258,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   announce \
-  --network-id office-a \
+  --discovery-domain office-a \
   --service _http._tcp \
   --port 3000 \
   --lan-addr 192.168.1.20 \
@@ -300,7 +274,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   discover \
-  --network-id office-a \
+  --discovery-domain office-a \
   --auto-scope-overlap \
   --service _http._tcp \
   --tag stable
@@ -324,7 +298,7 @@ cargo run --bin lnd-client -- \
   --server-url http://127.0.0.1:8765 \
   --bearer-token dev-token \
   discover \
-  --network-id office-a \
+  --discovery-domain office-a \
   --json
 ```
 
@@ -374,7 +348,6 @@ async fn main() -> anyhow::Result<()> {
         .include_loopback(true)
         .build()?;
 
-    let network_id = client.resolve_network_id()?;
     let scopes = client
         .list_reachability_scopes()?
         .into_iter()
@@ -382,7 +355,7 @@ async fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
 
     let spec = AnnounceSpec::new("node-a", "_http._tcp", "devbox-a", 8080)
-    .with_network_id(network_id.clone())
+    .with_discovery_domain("office-a")
     .add_tag("stable")
     .insert_metadata("version", "1.0.0")
     .include_loopback(true);
@@ -392,7 +365,7 @@ async fn main() -> anyhow::Result<()> {
     let nodes = client
         .list(
             DiscoveryFilter::new()
-                .with_network_id(network_id)
+                .with_discovery_domain("office-a")
                 .with_service("_http._tcp")
                 .with_reachability_scopes(scopes.clone()),
         )
@@ -423,7 +396,6 @@ Rust 侧主要公开类型:
 - `DiscoveredNode`
 - `DiscoveryEvent`
 - `LeaseInfo`
-- `DerivedNetworkId`
 - `ReachabilityScope`
 
 Rust library 侧的 `node_id` 生成, 持久化, 以及 `display_name` 默认值由接入端自己决定.
@@ -459,13 +431,6 @@ Rust library 侧的 `node_id` 生成, 持久化, 以及 `display_name` 默认值
 - `with_ipv6`
 - `with_interface`
 - `without_interface`
-
-自动 `network_id` 相关 API:
-
-- `client.resolve_network_id()`
-- `client.list_network_id_candidates()`
-- `resolve_network_id_with_selection(&selection)`
-- `list_network_id_candidates(&selection)`
 
 自动 `reachability_scopes` 相关 API:
 
@@ -554,18 +519,16 @@ discover:
 
 - `lnd_filter_new`
 - `lnd_filter_set_service`
-- `lnd_filter_set_network_id`
+- `lnd_filter_set_discovery_domain`
 - `lnd_filter_add_tag`
 - `lnd_filter_add_scope`
 - `lnd_discover`
 - `lnd_discover_json`
-- `lnd_resolve_network_id`
-- `lnd_list_network_id_candidates_json`
 
 announce:
 
 - `lnd_announce_spec_new`
-- `lnd_announce_spec_set_network_id`
+- `lnd_announce_spec_set_discovery_domain`
 - `lnd_announce_spec_set_node_id`
 - `lnd_announce_spec_set_service`
 - `lnd_announce_spec_set_display_name`
@@ -692,9 +655,8 @@ pip install target/wheels/lnd_sdk-0.1.0-*.whl
 from lnd import Client, DiscoveryFilter
 
 with Client("http://127.0.0.1:8765", "dev-token") as client:
-    network_id = client.resolve_network_id()
     nodes = client.discover_with_auto_scope_overlap(
-        DiscoveryFilter().with_network_id(network_id).with_service("_http._tcp").add_tag("stable")
+        DiscoveryFilter().with_discovery_domain("office-a").with_service("_http._tcp").add_tag("stable")
     )
     print(nodes)
 ```
@@ -722,15 +684,11 @@ go get github.com/azazo1/lnd/impls/go
 
 ```go
 client := lnd.NewClient("http://127.0.0.1:8765", "dev-token")
-networkID, err := client.ResolveNetworkID()
-if err != nil {
-    log.Fatal(err)
-}
 scopes, err := client.ListReachabilityScopes()
 if err != nil {
     log.Fatal(err)
 }
-filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_http._tcp").AddTag("stable")
+filter := lnd.NewDiscoveryFilter().WithDiscoveryDomain("office-a").WithService("_http._tcp").AddTag("stable")
 for _, scope := range scopes {
     filter = filter.AddReachabilityScope(scope)
 }
@@ -763,8 +721,6 @@ Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 
 
 以及这些能力:
 
-- `resolveNetworkId()`
-- `listNetworkIdCandidates()`
 - `listReachabilityScopes()`
 - `discover()`
 - `discoverWithAutoScopeOverlap()`
@@ -777,7 +733,7 @@ Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 
 
 ```java
 Client client = new Client("http://127.0.0.1:8765", "dev-token");
-String networkId = client.resolveNetworkId();
+DiscoveryFilter filter = new DiscoveryFilter().withDiscoveryDomain("office-a");
 ```
 
 示例见 [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java), SDK 源码见 [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java).
@@ -822,9 +778,8 @@ Bindings:
 
 - v1 只做单 server, 不做高可用和集群复制
 - server 状态驻留内存, 重启后依赖 client 自动重新注册
-- `network_id` 是可选逻辑发现域, 不代表网络可达性边界
+- `discovery_domain` 是可选逻辑发现域, 不代表网络可达性边界
 - `reachability_scopes` 基于本机子网前缀, 用于自动可达性 overlap 匹配
-- 自动 `network_id` 当前仍基于本机子网前缀指纹, 不基于网关 MAC
 - v1 先只建模单端口和一组 LAN 地址, 不做多端点协议图
 - C ABI 追求稳定和可包一层, 不直接暴露 Rust 内部泛型和异步类型
 

@@ -11,15 +11,14 @@ import (
 
 func main() {
 	client := lnd.NewClient("http://127.0.0.1:8765", "dev-token", lnd.WithTimeout(5*time.Second))
-	networkID, err := client.ResolveNetworkID()
-	if err != nil {
-		log.Fatal(err)
-	}
 	scopes, err := client.ListReachabilityScopes()
 	if err != nil {
 		log.Fatal(err)
 	}
-	filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_http._tcp").AddTag("stable")
+	filter := lnd.NewDiscoveryFilter().
+		WithDiscoveryDomain("office-a").
+		WithService("_http._tcp").
+		AddTag("stable")
 	for _, scope := range scopes {
 		filter = filter.AddReachabilityScope(scope)
 	}

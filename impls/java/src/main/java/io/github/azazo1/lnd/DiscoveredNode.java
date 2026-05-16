@@ -15,7 +15,7 @@ import java.util.Map;
  * </ul>
  */
 public final class DiscoveredNode {
-    private final String networkId;
+    private final String discoveryDomain;
     private final String nodeId;
     private final String service;
     private final String displayName;
@@ -29,7 +29,7 @@ public final class DiscoveredNode {
     /**
      * 创建 discovered node.
      *
-     * @param networkId 逻辑发现域, 未设置时可为 `null`
+     * @param discoveryDomain 逻辑发现域, 未设置时可为 `null`
      * @param nodeId 节点标识
      * @param service 服务名
      * @param displayName 显示名
@@ -41,7 +41,7 @@ public final class DiscoveredNode {
      * @param lease 服务端租约信息
      */
     public DiscoveredNode(
-        String networkId,
+        String discoveryDomain,
         String nodeId,
         String service,
         String displayName,
@@ -52,7 +52,7 @@ public final class DiscoveredNode {
         Map<String, String> metadata,
         LeaseInfo lease
     ) {
-        this.networkId = networkId;
+        this.discoveryDomain = discoveryDomain;
         this.nodeId = nodeId;
         this.service = service;
         this.displayName = displayName;
@@ -67,10 +67,10 @@ public final class DiscoveredNode {
     /**
      * 返回逻辑发现域.
      *
-     * @return `network_id`, 未设置时为 `null`
+     * @return `discovery_domain`, 未设置时为 `null`
      */
-    public String getNetworkId() {
-        return networkId;
+    public String getDiscoveryDomain() {
+        return discoveryDomain;
     }
 
     /**
@@ -157,7 +157,7 @@ public final class DiscoveredNode {
     @Override
     public String toString() {
         return "DiscoveredNode{"
-            + "networkId='" + networkId + '\''
+            + "discoveryDomain='" + discoveryDomain + '\''
             + ", nodeId='" + nodeId + '\''
             + ", service='" + service + '\''
             + ", displayName='" + displayName + '\''

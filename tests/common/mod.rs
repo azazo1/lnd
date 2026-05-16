@@ -75,7 +75,7 @@ impl Drop for TestServer {
 
 pub fn sample_spec(node_id: &str, ttl_secs: u64) -> AnnounceSpec {
     AnnounceSpec {
-        network_id: Some("net-a".to_string()),
+        discovery_domain: Some("prod".to_string()),
         node_id: node_id.to_string(),
         service: "svc".to_string(),
         display_name: format!("node-{node_id}"),

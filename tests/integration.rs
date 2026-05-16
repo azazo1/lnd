@@ -8,7 +8,7 @@ use lnd::protocol::{DiscoveryEvent, DiscoveryFilter};
 
 fn sample_filter() -> DiscoveryFilter {
     DiscoveryFilter {
-        network_id: Some("net-a".to_string()),
+        discovery_domain: Some("prod".to_string()),
         service: Some("svc".to_string()),
         tags: vec!["alpha".to_string()],
         reachability_scopes: vec!["192.168.1.0/24".to_string()],

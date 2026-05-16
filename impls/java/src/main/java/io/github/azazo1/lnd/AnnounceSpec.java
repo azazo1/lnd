@@ -29,7 +29,7 @@ import java.util.Map;
  *
  * <pre>{@code
  * AnnounceSpec spec = new AnnounceSpec("node-a", "_http._tcp", "devbox-a", 8080)
- *     .withNetworkId("office-a")
+ *     .withDiscoveryDomain("office-a")
  *     .addTag("stable")
  *     .insertMetadata("role", "api");
  * }</pre>
@@ -38,7 +38,7 @@ public final class AnnounceSpec {
     /** 默认 TTL, 单位为秒. */
     public static final long DEFAULT_TTL_SECONDS = 30L;
 
-    private String networkId;
+    private String discoveryDomain;
     private final String nodeId;
     private String service;
     private String displayName;
@@ -70,11 +70,11 @@ public final class AnnounceSpec {
     /**
      * 设置逻辑发现域.
      *
-     * @param networkId 逻辑发现域, 例如 `office-a`
+     * @param discoveryDomain 逻辑发现域, 例如 `office-a`
      * @return 当前对象, 便于链式调用
      */
-    public AnnounceSpec withNetworkId(String networkId) {
-        this.networkId = networkId;
+    public AnnounceSpec withDiscoveryDomain(String discoveryDomain) {
+        this.discoveryDomain = discoveryDomain;
         return this;
     }
 
@@ -83,8 +83,8 @@ public final class AnnounceSpec {
      *
      * @return 当前对象, 便于链式调用
      */
-    public AnnounceSpec withoutNetworkId() {
-        this.networkId = null;
+    public AnnounceSpec withoutDiscoveryDomain() {
+        this.discoveryDomain = null;
         return this;
     }
 
@@ -268,10 +268,10 @@ public final class AnnounceSpec {
     /**
      * 获取逻辑发现域.
      *
-     * @return `network_id`, 未设置时为 `null`
+     * @return `discovery_domain`, 未设置时为 `null`
      */
-    public String getNetworkId() {
-        return networkId;
+    public String getDiscoveryDomain() {
+        return discoveryDomain;
     }
 
     /**
@@ -389,7 +389,7 @@ public final class AnnounceSpec {
      */
     public AnnounceSpec copy() {
         return new AnnounceSpec(nodeId, service, displayName, port)
-            .withNetworkId(networkId)
+            .withDiscoveryDomain(discoveryDomain)
             .withLanAddrs(lanAddrs)
             .withAutoLanAddrs(autoLanAddrs)
             .withAddressSelection(addressSelection)

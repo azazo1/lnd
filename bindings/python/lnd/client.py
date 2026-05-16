@@ -42,7 +42,7 @@ class DiscoveryFilter:
     """一次性发现和持续 watch 使用的过滤器.
 
     参数:
-    - `network_id`: 可选逻辑发现域.
+    - `discovery_domain`: 可选逻辑发现域.
     - `service`: 可选服务名过滤器, 推荐使用 mDNS / DNS-SD 风格的 service type.
     - `tags`: 需要全部满足的 tag 列表.
     - `reachability_scopes`: 至少重叠一个即可匹配.
@@ -52,19 +52,19 @@ class DiscoveryFilter:
 
     使用示例:
     ```python
-    filter_spec = DiscoveryFilter().with_network_id("office-a").with_service("_http._tcp")
+    filter_spec = DiscoveryFilter().with_discovery_domain("office-a").with_service("_http._tcp")
     ```
     """
 
-    network_id: str | None = None
+    discovery_domain: str | None = None
     service: str | None = None
     tags: list[str] = field(default_factory=list)
     reachability_scopes: list[str] = field(default_factory=list)
 
-    def with_network_id(self, network_id: str | None) -> "DiscoveryFilter":
+    def with_discovery_domain(self, discovery_domain: str | None) -> "DiscoveryFilter":
         """设置逻辑发现域过滤条件."""
 
-        self.network_id = network_id
+        self.discovery_domain = discovery_domain
         return self
 
     def with_service(self, service: str) -> "DiscoveryFilter":
@@ -99,7 +99,7 @@ class AnnounceSpec:
     - 同时支持显式 `lan_addrs` 和自动地址解析参数.
 
     参数:
-    - `network_id`: 可选逻辑发现域.
+    - `discovery_domain`: 可选逻辑发现域.
     - `node_id`: 持久节点标识.
     - `service`: 服务名, 建议使用 mDNS / DNS-SD 常见的 service type.
     - `display_name`: 展示名称.
@@ -110,7 +110,7 @@ class AnnounceSpec:
     - `include_*` 和接口过滤只影响自动地址解析.
     """
 
-    network_id: str | None = None
+    discovery_domain: str | None = None
     node_id: str
     service: str
     display_name: str
@@ -271,7 +271,7 @@ class Client:
     使用示例:
     ```python
     with Client("http://127.0.0.1:8765", "dev-token") as client:
-        nodes = client.discover(DiscoveryFilter().with_network_id("office-a"))
+        nodes = client.discover(DiscoveryFilter().with_discovery_domain("office-a"))
         print(nodes)
     ```
     """
@@ -428,7 +428,7 @@ class Client:
         """使用本机自动可达域重叠策略执行一次发现."""
 
         filter_spec = DiscoveryFilter(
-            network_id=filter_spec.network_id,
+            discovery_domain=filter_spec.discovery_domain,
             service=filter_spec.service,
             tags=list(filter_spec.tags),
             reachability_scopes=list(filter_spec.reachability_scopes),
@@ -436,47 +436,6 @@ class Client:
         for scope in self.list_reachability_scopes():
             filter_spec.add_reachability_scope(scope["scope"])
         return self.discover(filter_spec)
-
-    def resolve_network_id(self) -> str:
-        """自动推导一个局域网发现域标识.
-
-        返回值:
-        - 一个稳定的 `network_id` 字符串.
-
-        异常:
-        - 抛出 [`LndError`] 当没有可用局域网前缀, 或候选过多无法自动选定.
-        """
-
-        result = _call_native(
-            "resolve_network_id",
-            _native.resolve_network_id,
-            self._server_url,
-            self._bearer_token,
-            self._timeout_ms,
-            self._reconnect_backoff_ms,
-            self._address_defaults_json(),
-        )
-        assert isinstance(result, str)
-        return result
-
-    def list_network_id_candidates(self) -> list[dict]:
-        """列出当前默认地址选择规则下的全部 `network_id` 候选项.
-
-        返回值:
-        - 每项都包含 `network_id` 和 `scope`.
-        """
-
-        result = _call_native(
-            "list_network_id_candidates",
-            _native.list_network_id_candidates_json,
-            self._server_url,
-            self._bearer_token,
-            self._timeout_ms,
-            self._reconnect_backoff_ms,
-            self._address_defaults_json(),
-        )
-        assert isinstance(result, list)
-        return result
 
     def list_reachability_scopes(self) -> list[dict]:
         """列出当前默认地址选择规则下的全部可达域候选项."""
@@ -603,7 +562,7 @@ class Client:
         """使用本机自动可达域重叠策略启动持续 watch."""
 
         filter_spec = DiscoveryFilter(
-            network_id=filter_spec.network_id,
+            discovery_domain=filter_spec.discovery_domain,
             service=filter_spec.service,
             tags=list(filter_spec.tags),
             reachability_scopes=list(filter_spec.reachability_scopes),

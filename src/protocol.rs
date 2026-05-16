@@ -30,7 +30,7 @@ pub const DEFAULT_EVENT_BUFFER_CAPACITY: usize = 4096;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeAnnouncement {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network_id: Option<String>,
+    pub discovery_domain: Option<String>,
     pub node_id: String,
     pub service: String,
     pub display_name: String,
@@ -56,7 +56,7 @@ pub struct NodeAnnouncement {
 /// - 增加了 [`LeaseInfo`] 字段, 用于表达 revision 和过期时间.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveredNode {
-    pub network_id: Option<String>,
+    pub discovery_domain: Option<String>,
     pub node_id: String,
     pub service: String,
     pub display_name: String,
@@ -87,7 +87,7 @@ pub struct LeaseInfo {
 ///
 /// 功能简介:
 /// - 用于一次性查询和持续 watch.
-/// - `network_id` 可选, 用于逻辑发现域隔离.
+/// - `discovery_domain` 可选, 用于逻辑发现域隔离.
 /// - `service` 为可选单值过滤条件, 推荐使用 mDNS / DNS-SD 风格的 service type.
 /// - `tags` 为 "全部满足" 语义, 即返回节点必须包含所有给定 tag.
 /// - `reachability_scopes` 为 "至少有一个重叠" 语义.
@@ -97,14 +97,14 @@ pub struct LeaseInfo {
 /// use lnd::DiscoveryFilter;
 ///
 /// let filter = DiscoveryFilter::new()
-///     .with_network_id("office-a")
+///     .with_discovery_domain("office-a")
 ///     .with_service("_http._tcp")
 ///     .add_tag("stable");
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveryFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network_id: Option<String>,
+    pub discovery_domain: Option<String>,
     #[serde(default)]
     pub service: Option<String>,
     #[serde(default)]
@@ -117,10 +117,10 @@ impl DiscoveryFilter {
     /// 创建一个最小发现过滤器.
     ///
     /// 返回值:
-    /// - 一个没有 `network_id`, `service`, `tags` 和 `reachability_scopes` 过滤条件的 [`DiscoveryFilter`].
+    /// - 一个没有 `discovery_domain`, `service`, `tags` 和 `reachability_scopes` 过滤条件的 [`DiscoveryFilter`].
     pub fn new() -> Self {
         Self {
-            network_id: None,
+            discovery_domain: None,
             service: None,
             tags: Vec::new(),
             reachability_scopes: Vec::new(),
@@ -128,14 +128,14 @@ impl DiscoveryFilter {
     }
 
     /// 设置逻辑发现域过滤条件.
-    pub fn with_network_id(mut self, network_id: impl Into<String>) -> Self {
-        self.network_id = Some(network_id.into());
+    pub fn with_discovery_domain(mut self, discovery_domain: impl Into<String>) -> Self {
+        self.discovery_domain = Some(discovery_domain.into());
         self
     }
 
     /// 清空逻辑发现域过滤条件.
-    pub fn without_network_id(mut self) -> Self {
-        self.network_id = None;
+    pub fn without_discovery_domain(mut self) -> Self {
+        self.discovery_domain = None;
         self
     }
 
@@ -271,7 +271,7 @@ pub struct ApiErrorBody {
 /// use lnd::AnnounceSpec;
 ///
 /// let spec = AnnounceSpec::new("node-a", "_http._tcp", "devbox-a", 8080)
-///     .with_network_id("office-a")
+///     .with_discovery_domain("office-a")
 ///     .add_tag("stable")
 ///     .insert_metadata("version", "1.0.0")
 ///     .include_loopback(true);
@@ -279,7 +279,7 @@ pub struct ApiErrorBody {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AnnounceSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network_id: Option<String>,
+    pub discovery_domain: Option<String>,
     pub node_id: String,
     pub service: String,
     pub display_name: String,
@@ -320,7 +320,7 @@ impl AnnounceSpec {
         port: u16,
     ) -> Self {
         Self {
-            network_id: None,
+            discovery_domain: None,
             node_id: node_id.into(),
             service: service.into(),
             display_name: display_name.into(),
@@ -349,7 +349,7 @@ impl AnnounceSpec {
     /// - 调用方通常应先调用 `resolve_announce_addrs*` 相关函数.
     pub fn into_announcement(self, lan_addrs: Vec<SocketAddr>) -> NodeAnnouncement {
         NodeAnnouncement {
-            network_id: self.network_id,
+            discovery_domain: self.discovery_domain,
             node_id: self.node_id,
             service: self.service,
             display_name: self.display_name,
@@ -363,14 +363,14 @@ impl AnnounceSpec {
     }
 
     /// 设置逻辑发现域标识.
-    pub fn with_network_id(mut self, network_id: impl Into<String>) -> Self {
-        self.network_id = Some(network_id.into());
+    pub fn with_discovery_domain(mut self, discovery_domain: impl Into<String>) -> Self {
+        self.discovery_domain = Some(discovery_domain.into());
         self
     }
 
     /// 清空逻辑发现域标识.
-    pub fn without_network_id(mut self) -> Self {
-        self.network_id = None;
+    pub fn without_discovery_domain(mut self) -> Self {
+        self.discovery_domain = None;
         self
     }
 

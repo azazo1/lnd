@@ -24,30 +24,22 @@ SDK 公开对象:
 
 自动发现域与可达域相关接口:
 
-- `client.ResolveNetworkID()`
-- `client.ListNetworkIDCandidates()`
 - `client.ListReachabilityScopes()`
-- `ResolveNetworkIDWithSelection(selection)`
-- `ListNetworkIDCandidates(selection)`
 
 推荐模型是:
 
-- `network_id`: 可选逻辑发现域
+- `discovery_domain`: 可选逻辑发现域
 - `reachability_scopes`: 本机子网前缀列表, 用于自动 overlap 匹配
 
 最小示例:
 
 ```go
 client := lnd.NewClient("http://127.0.0.1:8765", "dev-token")
-networkID, err := client.ResolveNetworkID()
-if err != nil {
-	return err
-}
 scopes, err := client.ListReachabilityScopes()
 if err != nil {
 	return err
 }
-filter := lnd.NewDiscoveryFilter().WithNetworkID(networkID).WithService("_http._tcp").AddTag("stable")
+filter := lnd.NewDiscoveryFilter().WithDiscoveryDomain("office-a").WithService("_http._tcp").AddTag("stable")
 for _, scope := range scopes {
 	filter = filter.AddReachabilityScope(scope)
 }

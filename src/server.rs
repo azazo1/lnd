@@ -149,7 +149,7 @@ pub struct RegistrySnapshot {
 
 #[derive(Debug, Deserialize, Default)]
 struct FilterQuery {
-    network_id: Option<String>,
+    discovery_domain: Option<String>,
     service: Option<String>,
     cursor: Option<u64>,
 }
@@ -239,7 +239,7 @@ impl InMemoryRegistry {
     /// 注意事项:
     /// - 本方法会去重地址和 tag.
     /// - 成功后会向 replay 缓冲区和 broadcast 通道写入 `upsert` 事件.
-    #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, network_id = ?announcement.network_id))]
+    #[instrument(skip(self, announcement), fields(node_id = %announcement.node_id, discovery_domain = ?announcement.discovery_domain))]
     pub fn upsert(&self, announcement: NodeAnnouncement) -> Result<DiscoveredNode, RegistryError> {
         if announcement.ttl_secs == 0 {
             return Err(RegistryError::InvalidTtl);
@@ -392,7 +392,7 @@ impl Default for InMemoryRegistry {
 impl NodeEntry {
     fn to_discovered_node(&self) -> DiscoveredNode {
         DiscoveredNode {
-            network_id: self.announcement.network_id.clone(),
+            discovery_domain: self.announcement.discovery_domain.clone(),
             node_id: self.announcement.node_id.clone(),
             service: self.announcement.service.clone(),
             display_name: self.announcement.display_name.clone(),
@@ -534,10 +534,10 @@ async fn upsert_node(
     {
         return Err(AppError::BadRequest("missing required fields".to_string()));
     }
-    if let Some(network_id) = &body.network_id
-        && network_id.trim().is_empty()
+    if let Some(discovery_domain) = &body.discovery_domain
+        && discovery_domain.trim().is_empty()
     {
-        body.network_id = None;
+        body.discovery_domain = None;
     }
     if body.ttl_secs == 0 {
         body.ttl_secs = DEFAULT_TTL_SECS;
@@ -676,8 +676,8 @@ fn parse_filter(raw_query: Option<&str>, query: &FilterQuery) -> Result<Discover
         }
     }
     Ok(DiscoveryFilter {
-        network_id: query
-            .network_id
+        discovery_domain: query
+            .discovery_domain
             .clone()
             .filter(|value| !value.trim().is_empty()),
         service: query.service.clone(),
@@ -687,8 +687,8 @@ fn parse_filter(raw_query: Option<&str>, query: &FilterQuery) -> Result<Discover
 }
 
 fn filter_matches(filter: &DiscoveryFilter, announcement: &NodeAnnouncement) -> bool {
-    if let Some(network_id) = &filter.network_id
-        && announcement.network_id.as_ref() != Some(network_id)
+    if let Some(discovery_domain) = &filter.discovery_domain
+        && announcement.discovery_domain.as_ref() != Some(discovery_domain)
     {
         return false;
     }
@@ -725,8 +725,8 @@ fn event_matches_filter(event: &DiscoveryEventEnvelope, filter: &DiscoveryFilter
 }
 
 fn discovered_matches(filter: &DiscoveryFilter, node: &DiscoveredNode) -> bool {
-    if let Some(network_id) = &filter.network_id
-        && node.network_id.as_ref() != Some(network_id)
+    if let Some(discovery_domain) = &filter.discovery_domain
+        && node.discovery_domain.as_ref() != Some(discovery_domain)
     {
         return false;
     }
@@ -776,7 +776,7 @@ mod tests {
 
     fn sample_announcement(node_id: &str, tags: &[&str], ttl_secs: u64) -> NodeAnnouncement {
         NodeAnnouncement {
-            network_id: Some("net-a".to_string()),
+            discovery_domain: Some("prod".to_string()),
             node_id: node_id.to_string(),
             service: "svc".to_string(),
             display_name: "node".to_string(),
@@ -803,7 +803,7 @@ mod tests {
             .unwrap();
 
         let snapshot = registry.list(&DiscoveryFilter {
-            network_id: Some("net-a".to_string()),
+            discovery_domain: Some("prod".to_string()),
             service: Some("svc".to_string()),
             tags: vec!["alpha".to_string()],
             reachability_scopes: vec![],
@@ -826,7 +826,7 @@ mod tests {
             .replay_since(
                 0,
                 &DiscoveryFilter {
-                    network_id: Some("net-a".to_string()),
+                    discovery_domain: Some("prod".to_string()),
                     service: None,
                     tags: vec![],
                     reachability_scopes: vec![],
@@ -859,7 +859,7 @@ mod tests {
         let result = registry.replay_since(
             1,
             &DiscoveryFilter {
-                network_id: Some("net-a".to_string()),
+                discovery_domain: Some("prod".to_string()),
                 service: None,
                 tags: vec![],
                 reachability_scopes: vec![],
@@ -894,7 +894,7 @@ mod tests {
         registry.upsert(second).unwrap();
 
         let snapshot = registry.list(&DiscoveryFilter {
-            network_id: None,
+            discovery_domain: None,
             service: None,
             tags: vec![],
             reachability_scopes: vec!["192.168.1.0/24".to_string()],

@@ -6,10 +6,9 @@ import java.util.List;
 public final class Main {
     public static void main(String[] args) throws Exception {
         Client client = new Client("http://127.0.0.1:8765", "dev-token");
-        String networkId = client.resolveNetworkId();
 
         DiscoveryFilter filter = new DiscoveryFilter()
-            .withNetworkId(networkId)
+            .withDiscoveryDomain("office-a")
             .withService("_http._tcp")
             .addTag("stable");
 

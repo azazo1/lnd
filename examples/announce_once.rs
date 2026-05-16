@@ -8,7 +8,7 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     let spec = AnnounceSpec::new("example-node-a", "_http._tcp", "example-node-a", 8080)
-        .with_network_id("office-a")
+        .with_discovery_domain("office-a")
         .add_tag("stable")
         .insert_metadata("version", "1.0.0")
         .include_loopback(true);
