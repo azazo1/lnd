@@ -11,9 +11,9 @@ use lnd::ffi::{
     lnd_announce_spec_set_include_loopback, lnd_announce_spec_set_ttl_secs,
     lnd_announce_start_with_spec, lnd_announce_stop, lnd_client_enable_interface, lnd_client_free,
     lnd_client_new_default, lnd_client_set_bearer_token, lnd_client_set_include_loopback,
-    lnd_client_set_server_url, lnd_discover, lnd_discovery_filter_add_tag,
-    lnd_discovery_filter_free, lnd_discovery_filter_new, lnd_discovery_filter_set_service,
-    lnd_last_error, lnd_string_free, lnd_watch_start_with_filter, lnd_watch_stop,
+    lnd_client_set_server_url, lnd_discover, lnd_filter_add_tag, lnd_filter_free, lnd_filter_new,
+    lnd_filter_set_service, lnd_last_error, lnd_string_free, lnd_watch_start_with_filter,
+    lnd_watch_stop,
 };
 
 static EVENTS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
@@ -51,10 +51,10 @@ async fn ffi_discover_and_watch_work() {
     assert!(unsafe { lnd_client_set_include_loopback(client, true) });
     assert!(unsafe { lnd_client_enable_interface(client, iface.as_ptr()) });
 
-    let filter = unsafe { lnd_discovery_filter_new(network_id.as_ptr()) };
+    let filter = unsafe { lnd_filter_new(network_id.as_ptr()) };
     assert!(!filter.is_null(), "ffi filter init failed");
-    assert!(unsafe { lnd_discovery_filter_set_service(filter, service.as_ptr()) });
-    assert!(unsafe { lnd_discovery_filter_add_tag(filter, tag.as_ptr()) });
+    assert!(unsafe { lnd_filter_set_service(filter, service.as_ptr()) });
+    assert!(unsafe { lnd_filter_add_tag(filter, tag.as_ptr()) });
 
     let watch = unsafe {
         lnd_watch_start_with_filter(client, filter, watch_callback, std::ptr::null_mut())
@@ -118,7 +118,7 @@ async fn ffi_discover_and_watch_work() {
         lnd_announce_stop(announce_handle);
         lnd_watch_stop(watch);
         lnd_announce_spec_free(announce);
-        lnd_discovery_filter_free(filter);
+        lnd_filter_free(filter);
         lnd_client_free(client);
     }
 }

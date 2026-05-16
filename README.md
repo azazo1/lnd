@@ -506,7 +506,7 @@ v1 的跨语言底座仍然是 C ABI, 但它不是推荐给业务项目直接使
 ### 核心对象
 
 - `LndClientHandle`
-- `LndDiscoveryFilterHandle`
+- `LndFilterHandle`
 - `LndAnnounceSpecHandle`
 - `LndAnnounceHandle`
 - `LndWatchHandle`
@@ -530,11 +530,11 @@ client:
 
 discover:
 
-- `lnd_discovery_filter_new`
-- `lnd_discovery_filter_set_service`
-- `lnd_discovery_filter_set_network_id`
-- `lnd_discovery_filter_add_tag`
-- `lnd_discovery_filter_add_scope`
+- `lnd_filter_new`
+- `lnd_filter_set_service`
+- `lnd_filter_set_network_id`
+- `lnd_filter_add_tag`
+- `lnd_filter_add_scope`
 - `lnd_discover`
 - `lnd_discover_json`
 - `lnd_resolve_network_id`
@@ -591,8 +591,8 @@ static void on_event(const char *json, void *user_data) {
 
 int main(void) {
   struct LndClientHandle *client = lnd_client_new("http://127.0.0.1:8765", "dev-token");
-  struct LndDiscoveryFilterHandle *filter = lnd_discovery_filter_new("office-a");
-  lnd_discovery_filter_set_service(filter, "_demo._tcp");
+  struct LndFilterHandle *filter = lnd_filter_new("office-a");
+  lnd_filter_set_service(filter, "_demo._tcp");
 
   char *nodes = lnd_discover(client, filter);
   if (nodes == NULL) {
@@ -610,7 +610,7 @@ int main(void) {
 
   getchar();
   lnd_watch_stop(watch);
-  lnd_discovery_filter_free(filter);
+  lnd_filter_free(filter);
   lnd_client_free(client);
   return 0;
 }

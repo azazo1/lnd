@@ -14,16 +14,16 @@ int main(void) {
     return 1;
   }
 
-  struct LndDiscoveryFilterHandle *filter = lnd_discovery_filter_new("office-a");
+  struct LndFilterHandle *filter = lnd_filter_new("office-a");
   if (filter == NULL) {
     fprintf(stderr, "filter init failed: %s\n", lnd_last_error());
     lnd_client_free(client);
     return 1;
   }
 
-  if (!lnd_discovery_filter_set_service(filter, "_demo._tcp")) {
+  if (!lnd_filter_set_service(filter, "_demo._tcp")) {
     fprintf(stderr, "set service failed: %s\n", lnd_last_error());
-    lnd_discovery_filter_free(filter);
+    lnd_filter_free(filter);
     lnd_client_free(client);
     return 1;
   }
@@ -31,7 +31,7 @@ int main(void) {
   char *nodes = lnd_discover(client, filter);
   if (nodes == NULL) {
     fprintf(stderr, "discover failed: %s\n", lnd_last_error());
-    lnd_discovery_filter_free(filter);
+    lnd_filter_free(filter);
     lnd_client_free(client);
     return 1;
   }
@@ -41,7 +41,7 @@ int main(void) {
   struct LndWatchHandle *watch = lnd_watch_start_with_filter(client, filter, on_event, NULL);
   if (watch == NULL) {
     fprintf(stderr, "watch failed: %s\n", lnd_last_error());
-    lnd_discovery_filter_free(filter);
+    lnd_filter_free(filter);
     lnd_client_free(client);
     return 1;
   }
@@ -50,7 +50,7 @@ int main(void) {
   getchar();
 
   lnd_watch_stop(watch);
-  lnd_discovery_filter_free(filter);
+  lnd_filter_free(filter);
   lnd_client_free(client);
   return 0;
 }

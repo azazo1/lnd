@@ -46,12 +46,12 @@ pub struct LndWatchHandle {
     _private: [u8; 0],
 }
 
-/// Opaque discovery filter handle used to build list and watch queries.
+/// Opaque filter handle used to build list and watch queries.
 ///
-/// Create with `lnd_discovery_filter_new`, mutate with the setter functions and
-/// release with `lnd_discovery_filter_free`.
+/// Create with `lnd_filter_new`, mutate with the setter functions and release
+/// with `lnd_filter_free`.
 #[repr(C)]
-pub struct LndDiscoveryFilterHandle {
+pub struct LndFilterHandle {
     _private: [u8; 0],
 }
 
@@ -87,7 +87,7 @@ struct LndWatchState {
     join_handle: Option<std::thread::JoinHandle<()>>,
 }
 
-struct LndDiscoveryFilterState {
+struct LndFilterState {
     filter: DiscoveryFilter,
 }
 
@@ -625,9 +625,7 @@ pub unsafe extern "C" fn lnd_client_clear_interface_filters(handle: *mut LndClie
 ///
 /// # Safety
 /// `network_id` may be null, otherwise it must be valid UTF-8.
-pub unsafe extern "C" fn lnd_discovery_filter_new(
-    network_id: *const c_char,
-) -> *mut LndDiscoveryFilterHandle {
+pub unsafe extern "C" fn lnd_filter_new(network_id: *const c_char) -> *mut LndFilterHandle {
     ptr_result(catch_ffi(|| {
         let mut filter = DiscoveryFilter::new();
         if let Some(network_id) = read_optional_cstr(network_id, "network_id")?
@@ -635,10 +633,9 @@ pub unsafe extern "C" fn lnd_discovery_filter_new(
         {
             filter = filter.with_network_id(network_id);
         }
-        Ok(into_handle::<
-            LndDiscoveryFilterState,
-            LndDiscoveryFilterHandle,
-        >(LndDiscoveryFilterState { filter }))
+        Ok(into_handle::<LndFilterState, LndFilterHandle>(
+            LndFilterState { filter },
+        ))
     }))
 }
 
@@ -649,8 +646,8 @@ pub unsafe extern "C" fn lnd_discovery_filter_new(
 ///
 /// # Safety
 /// `handle` must be null or a live discovery filter handle.
-pub unsafe extern "C" fn lnd_discovery_filter_free(handle: *mut LndDiscoveryFilterHandle) {
-    free_handle::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle);
+pub unsafe extern "C" fn lnd_filter_free(handle: *mut LndFilterHandle) {
+    free_handle::<LndFilterState, LndFilterHandle>(handle);
 }
 
 #[unsafe(no_mangle)]
@@ -664,13 +661,12 @@ pub unsafe extern "C" fn lnd_discovery_filter_free(handle: *mut LndDiscoveryFilt
 /// # Safety
 /// `handle` must be a live discovery filter handle.
 /// `service` must be valid UTF-8.
-pub unsafe extern "C" fn lnd_discovery_filter_set_service(
-    handle: *mut LndDiscoveryFilterHandle,
+pub unsafe extern "C" fn lnd_filter_set_service(
+    handle: *mut LndFilterHandle,
     service: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state.filter.service = Some(read_cstr(service, "service")?);
         Ok(())
     }))
@@ -684,13 +680,12 @@ pub unsafe extern "C" fn lnd_discovery_filter_set_service(
 /// # Safety
 /// `handle` must be a live discovery filter handle.
 /// `network_id` may be null, otherwise it must be valid UTF-8.
-pub unsafe extern "C" fn lnd_discovery_filter_set_network_id(
-    handle: *mut LndDiscoveryFilterHandle,
+pub unsafe extern "C" fn lnd_filter_set_network_id(
+    handle: *mut LndFilterHandle,
     network_id: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state.filter.network_id =
             read_optional_cstr(network_id, "network_id")?.filter(|value| !value.trim().is_empty());
         Ok(())
@@ -705,12 +700,9 @@ pub unsafe extern "C" fn lnd_discovery_filter_set_network_id(
 ///
 /// # Safety
 /// `handle` must be a live discovery filter handle.
-pub unsafe extern "C" fn lnd_discovery_filter_clear_service(
-    handle: *mut LndDiscoveryFilterHandle,
-) -> bool {
+pub unsafe extern "C" fn lnd_filter_clear_service(handle: *mut LndFilterHandle) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state.filter.service = None;
         Ok(())
     }))
@@ -727,13 +719,12 @@ pub unsafe extern "C" fn lnd_discovery_filter_clear_service(
 /// # Safety
 /// `handle` must be a live discovery filter handle.
 /// `tag` must be valid UTF-8.
-pub unsafe extern "C" fn lnd_discovery_filter_add_tag(
-    handle: *mut LndDiscoveryFilterHandle,
+pub unsafe extern "C" fn lnd_filter_add_tag(
+    handle: *mut LndFilterHandle,
     tag: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state.filter.tags.push(read_cstr(tag, "tag")?);
         Ok(())
     }))
@@ -747,12 +738,9 @@ pub unsafe extern "C" fn lnd_discovery_filter_add_tag(
 ///
 /// # Safety
 /// `handle` must be a live discovery filter handle.
-pub unsafe extern "C" fn lnd_discovery_filter_clear_tags(
-    handle: *mut LndDiscoveryFilterHandle,
-) -> bool {
+pub unsafe extern "C" fn lnd_filter_clear_tags(handle: *mut LndFilterHandle) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state.filter.tags.clear();
         Ok(())
     }))
@@ -764,13 +752,12 @@ pub unsafe extern "C" fn lnd_discovery_filter_clear_tags(
 /// # Safety
 /// `handle` must be a live discovery filter handle.
 /// `scope` must be valid UTF-8.
-pub unsafe extern "C" fn lnd_discovery_filter_add_scope(
-    handle: *mut LndDiscoveryFilterHandle,
+pub unsafe extern "C" fn lnd_filter_add_scope(
+    handle: *mut LndFilterHandle,
     scope: *const c_char,
 ) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state
             .filter
             .reachability_scopes
@@ -784,12 +771,9 @@ pub unsafe extern "C" fn lnd_discovery_filter_add_scope(
 ///
 /// # Safety
 /// `handle` must be a live discovery filter handle.
-pub unsafe extern "C" fn lnd_discovery_filter_clear_scopes(
-    handle: *mut LndDiscoveryFilterHandle,
-) -> bool {
+pub unsafe extern "C" fn lnd_filter_clear_scopes(handle: *mut LndFilterHandle) -> bool {
     bool_result(catch_ffi(|| {
-        let state =
-            cast_mut::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(handle, "filter handle")?;
+        let state = cast_mut::<LndFilterState, LndFilterHandle>(handle, "filter handle")?;
         state.filter.reachability_scopes.clear();
         Ok(())
     }))
@@ -812,12 +796,11 @@ pub unsafe extern "C" fn lnd_discovery_filter_clear_scopes(
 /// The returned pointer must be released with `lnd_string_free`.
 pub unsafe extern "C" fn lnd_discover(
     handle: *mut LndClientHandle,
-    filter: *const LndDiscoveryFilterHandle,
+    filter: *const LndFilterHandle,
 ) -> *mut c_char {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let filter_state =
-            cast_ref::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(filter, "filter handle")?;
+        let filter_state = cast_ref::<LndFilterState, LndFilterHandle>(filter, "filter handle")?;
         client_discover_json(state.client.clone(), filter_state.filter.clone())
     }))
 }
@@ -1609,7 +1592,7 @@ pub unsafe extern "C" fn lnd_announce_stop(handle: *mut LndAnnounceHandle) {
 }
 
 #[unsafe(no_mangle)]
-/// Start a background watch stream from a discovery filter handle.
+/// Start a background watch stream from a filter handle.
 ///
 /// Each callback receives one UTF-8 JSON event envelope. Callers should copy the
 /// payload inside the callback if it must be retained.
@@ -1619,18 +1602,17 @@ pub unsafe extern "C" fn lnd_announce_stop(handle: *mut LndAnnounceHandle) {
 ///
 /// # Safety
 /// `handle` must be a live client handle.
-/// `filter` must be a live discovery filter handle.
+/// `filter` must be a live filter handle.
 /// `callback` must remain valid until `lnd_watch_stop` is called.
 pub unsafe extern "C" fn lnd_watch_start_with_filter(
     handle: *mut LndClientHandle,
-    filter: *const LndDiscoveryFilterHandle,
+    filter: *const LndFilterHandle,
     callback: LndWatchCallback,
     user_data: *mut c_void,
 ) -> *mut LndWatchHandle {
     ptr_result(catch_ffi(|| {
         let state = cast_ref::<LndClientState, LndClientHandle>(handle, "client handle")?;
-        let filter_state =
-            cast_ref::<LndDiscoveryFilterState, LndDiscoveryFilterHandle>(filter, "filter handle")?;
+        let filter_state = cast_ref::<LndFilterState, LndFilterHandle>(filter, "filter handle")?;
         client_watch_start(
             state.client.clone(),
             filter_state.filter.clone(),

@@ -42,14 +42,14 @@ typedef struct LndClientHandle {
 } LndClientHandle;
 
 /**
- * Opaque discovery filter handle used to build list and watch queries.
+ * Opaque filter handle used to build list and watch queries.
  *
- * Create with `lnd_discovery_filter_new`, mutate with the setter functions and
- * release with `lnd_discovery_filter_free`.
+ * Create with `lnd_filter_new`, mutate with the setter functions and release
+ * with `lnd_filter_free`.
  */
-typedef struct LndDiscoveryFilterHandle {
+typedef struct LndFilterHandle {
   uint8_t _private[0];
-} LndDiscoveryFilterHandle;
+} LndFilterHandle;
 
 /**
  * Opaque announce spec handle used to describe one node registration.
@@ -293,7 +293,7 @@ bool lnd_client_clear_interface_filters(struct LndClientHandle *handle);
  * # Safety
  * `network_id` may be null, otherwise it must be valid UTF-8.
  */
-struct LndDiscoveryFilterHandle *lnd_discovery_filter_new(const char *network_id);
+struct LndFilterHandle *lnd_filter_new(const char *network_id);
 
 /**
  * Free a discovery filter handle.
@@ -303,7 +303,7 @@ struct LndDiscoveryFilterHandle *lnd_discovery_filter_new(const char *network_id
  * # Safety
  * `handle` must be null or a live discovery filter handle.
  */
-void lnd_discovery_filter_free(struct LndDiscoveryFilterHandle *handle);
+void lnd_filter_free(struct LndFilterHandle *handle);
 
 /**
  * Set the discovery service filter.
@@ -317,7 +317,7 @@ void lnd_discovery_filter_free(struct LndDiscoveryFilterHandle *handle);
  * `handle` must be a live discovery filter handle.
  * `service` must be valid UTF-8.
  */
-bool lnd_discovery_filter_set_service(struct LndDiscoveryFilterHandle *handle, const char *service);
+bool lnd_filter_set_service(struct LndFilterHandle *handle, const char *service);
 
 /**
  * Set the logical network_id filter.
@@ -328,8 +328,7 @@ bool lnd_discovery_filter_set_service(struct LndDiscoveryFilterHandle *handle, c
  * `handle` must be a live discovery filter handle.
  * `network_id` may be null, otherwise it must be valid UTF-8.
  */
-bool lnd_discovery_filter_set_network_id(struct LndDiscoveryFilterHandle *handle,
-                                         const char *network_id);
+bool lnd_filter_set_network_id(struct LndFilterHandle *handle, const char *network_id);
 
 /**
  * Clear the discovery service filter.
@@ -340,7 +339,7 @@ bool lnd_discovery_filter_set_network_id(struct LndDiscoveryFilterHandle *handle
  * # Safety
  * `handle` must be a live discovery filter handle.
  */
-bool lnd_discovery_filter_clear_service(struct LndDiscoveryFilterHandle *handle);
+bool lnd_filter_clear_service(struct LndFilterHandle *handle);
 
 /**
  * Add one discovery tag filter.
@@ -354,7 +353,7 @@ bool lnd_discovery_filter_clear_service(struct LndDiscoveryFilterHandle *handle)
  * `handle` must be a live discovery filter handle.
  * `tag` must be valid UTF-8.
  */
-bool lnd_discovery_filter_add_tag(struct LndDiscoveryFilterHandle *handle, const char *tag);
+bool lnd_filter_add_tag(struct LndFilterHandle *handle, const char *tag);
 
 /**
  * Clear discovery tag filters.
@@ -365,7 +364,7 @@ bool lnd_discovery_filter_add_tag(struct LndDiscoveryFilterHandle *handle, const
  * # Safety
  * `handle` must be a live discovery filter handle.
  */
-bool lnd_discovery_filter_clear_tags(struct LndDiscoveryFilterHandle *handle);
+bool lnd_filter_clear_tags(struct LndFilterHandle *handle);
 
 /**
  * Add one reachability scope overlap filter.
@@ -374,7 +373,7 @@ bool lnd_discovery_filter_clear_tags(struct LndDiscoveryFilterHandle *handle);
  * `handle` must be a live discovery filter handle.
  * `scope` must be valid UTF-8.
  */
-bool lnd_discovery_filter_add_scope(struct LndDiscoveryFilterHandle *handle, const char *scope);
+bool lnd_filter_add_scope(struct LndFilterHandle *handle, const char *scope);
 
 /**
  * Clear discovery reachability scope filters.
@@ -382,7 +381,7 @@ bool lnd_discovery_filter_add_scope(struct LndDiscoveryFilterHandle *handle, con
  * # Safety
  * `handle` must be a live discovery filter handle.
  */
-bool lnd_discovery_filter_clear_scopes(struct LndDiscoveryFilterHandle *handle);
+bool lnd_filter_clear_scopes(struct LndFilterHandle *handle);
 
 /**
  * Run a one-shot discovery request from a filter handle and return JSON.
@@ -400,7 +399,7 @@ bool lnd_discovery_filter_clear_scopes(struct LndDiscoveryFilterHandle *handle);
  * `filter` must be a live discovery filter handle.
  * The returned pointer must be released with `lnd_string_free`.
  */
-char *lnd_discover(struct LndClientHandle *handle, const struct LndDiscoveryFilterHandle *filter);
+char *lnd_discover(struct LndClientHandle *handle, const struct LndFilterHandle *filter);
 
 /**
  * Run a one-shot discovery request and return a newly allocated JSON string.
@@ -832,7 +831,7 @@ struct LndAnnounceHandle *lnd_announce_start(struct LndClientHandle *handle,
 void lnd_announce_stop(struct LndAnnounceHandle *handle);
 
 /**
- * Start a background watch stream from a discovery filter handle.
+ * Start a background watch stream from a filter handle.
  *
  * Each callback receives one UTF-8 JSON event envelope. Callers should copy the
  * payload inside the callback if it must be retained.
@@ -842,11 +841,11 @@ void lnd_announce_stop(struct LndAnnounceHandle *handle);
  *
  * # Safety
  * `handle` must be a live client handle.
- * `filter` must be a live discovery filter handle.
+ * `filter` must be a live filter handle.
  * `callback` must remain valid until `lnd_watch_stop` is called.
  */
 struct LndWatchHandle *lnd_watch_start_with_filter(struct LndClientHandle *handle,
-                                                   const struct LndDiscoveryFilterHandle *filter,
+                                                   const struct LndFilterHandle *filter,
                                                    LndWatchCallback callback,
                                                    void *user_data);
 
