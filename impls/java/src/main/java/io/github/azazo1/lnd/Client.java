@@ -1,6 +1,6 @@
 package io.github.azazo1.lnd;
 
-import java.io.BufferedReader;
+import java.io.Closeable;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,6 +13,7 @@ import java.net.InetAddress;
 import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.net.URI;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -23,6 +24,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * `lnd` 的高层 Java 客户端入口.
@@ -70,6 +76,17 @@ public final class Client {
     public static final long DEFAULT_RECONNECT_BACKOFF_MIN_MILLIS = 500L;
     /** 默认重连最大退避, 单位为毫秒. */
     public static final long DEFAULT_RECONNECT_BACKOFF_MAX_MILLIS = 15_000L;
+    /** watch 空闲轮询读超时, 单位为毫秒. */
+    public static final int DEFAULT_WATCH_READ_POLL_MILLIS = 1_000;
+    private static final AtomicInteger ASYNC_THREAD_IDS = new AtomicInteger(0);
+    private static final Executor ASYNC_EXECUTOR = Executors.newCachedThreadPool(new ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "lnd-async-" + ASYNC_THREAD_IDS.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        }
+    });
 
     private volatile String baseUrl;
     private volatile String bearerToken;
@@ -297,6 +314,18 @@ public final class Client {
     }
 
     /**
+     * Run `discover()` on the shared async executor.
+     */
+    public CompletableFuture<List<DiscoveredNode>> discoverAsync(final DiscoveryFilter filter) {
+        return supplyAsync(new AsyncCallable<List<DiscoveredNode>>() {
+            @Override
+            public List<DiscoveredNode> call() throws LndException {
+                return discover(filter);
+            }
+        });
+    }
+
+    /**
      * 执行一次带自动可达域补充的 discover.
      *
      * <p>注意事项:
@@ -315,6 +344,18 @@ public final class Client {
     }
 
     /**
+     * Run `discoverWithAutoScopeOverlap()` on the shared async executor.
+     */
+    public CompletableFuture<List<DiscoveredNode>> discoverWithAutoScopeOverlapAsync(final DiscoveryFilter filter) {
+        return supplyAsync(new AsyncCallable<List<DiscoveredNode>>() {
+            @Override
+            public List<DiscoveredNode> call() throws LndException {
+                return discoverWithAutoScopeOverlap(filter);
+            }
+        });
+    }
+
+    /**
      * 执行一次性 announce.
      *
      * <p>功能简介:
@@ -330,9 +371,33 @@ public final class Client {
      * @throws LndException 当地址解析, 请求发送, 或 JSON 解析失败时抛出
      */
     public DiscoveredNode announceOnce(AnnounceSpec spec) throws LndException {
+        return announceOnce(spec, null);
+    }
+
+    /**
+     * Run `announceOnce()` on the shared async executor.
+     */
+    public CompletableFuture<DiscoveredNode> announceOnceAsync(final AnnounceSpec spec) {
+        return supplyAsync(new AsyncCallable<DiscoveredNode>() {
+            @Override
+            public DiscoveredNode call() throws LndException {
+                return announceOnce(spec);
+            }
+        });
+    }
+
+    private DiscoveredNode announceOnce(AnnounceSpec spec, AnnounceHandle handle) throws LndException {
         Map<String, Object> payload = buildAnnouncementPayload(spec);
         String path = "/v1/nodes/" + urlEncodePathSegment(spec.getNodeId());
-        String body = request("PUT", path, Collections.<String, List<String>>emptyMap(), Json.stringify(payload), "application/json");
+        String body = request(
+            "PUT",
+            path,
+            Collections.<String, List<String>>emptyMap(),
+            Json.stringify(payload),
+            "application/json",
+            false,
+            handle
+        );
         return parseDiscoveredNode(Json.asObject(Json.parse(body), "announce response"));
     }
 
@@ -371,6 +436,18 @@ public final class Client {
     }
 
     /**
+     * Run `announce()` on the shared async executor.
+     */
+    public CompletableFuture<AnnounceHandle> announceAsync(final AnnounceSpec spec) {
+        return supplyAsync(new AsyncCallable<AnnounceHandle>() {
+            @Override
+            public AnnounceHandle call() {
+                return announce(spec);
+            }
+        });
+    }
+
+    /**
      * 启动后台 watch 循环.
      *
      * <p>行为语义:
@@ -406,6 +483,21 @@ public final class Client {
     }
 
     /**
+     * Run `watch()` on the shared async executor.
+     */
+    public CompletableFuture<WatchHandle> watchAsync(
+        final DiscoveryFilter filter,
+        final DiscoveryEventListener listener
+    ) {
+        return supplyAsync(new AsyncCallable<WatchHandle>() {
+            @Override
+            public WatchHandle call() {
+                return watch(filter, listener);
+            }
+        });
+    }
+
+    /**
      * 启动一个会自动附加本机可达域的 watch 循环.
      *
      * @param filter 发现过滤器
@@ -415,6 +507,21 @@ public final class Client {
      */
     public WatchHandle watchWithAutoScopeOverlap(DiscoveryFilter filter, DiscoveryEventListener listener) throws LndException {
         return watch(withAutoScopes(filter), listener);
+    }
+
+    /**
+     * Run `watchWithAutoScopeOverlap()` on the shared async executor.
+     */
+    public CompletableFuture<WatchHandle> watchWithAutoScopeOverlapAsync(
+        final DiscoveryFilter filter,
+        final DiscoveryEventListener listener
+    ) {
+        return supplyAsync(new AsyncCallable<WatchHandle>() {
+            @Override
+            public WatchHandle call() throws LndException {
+                return watchWithAutoScopeOverlap(filter, listener);
+            }
+        });
     }
 
     /**
@@ -428,6 +535,18 @@ public final class Client {
     }
 
     /**
+     * Run `listReachabilityScopes()` on the shared async executor.
+     */
+    public CompletableFuture<List<String>> listReachabilityScopesAsync() {
+        return supplyAsync(new AsyncCallable<List<String>>() {
+            @Override
+            public List<String> call() throws LndException {
+                return listReachabilityScopes();
+            }
+        });
+    }
+
+    /**
      * 使用给定地址选择策略列出所有 reachability scopes.
      *
      * @param selection 地址选择策略
@@ -436,6 +555,18 @@ public final class Client {
      */
     public static List<String> listReachabilityScopes(AddressSelection selection) throws LndException {
         return collectReachabilityScopes(selection);
+    }
+
+    /**
+     * Run `listReachabilityScopes(AddressSelection)` on the shared async executor.
+     */
+    public static CompletableFuture<List<String>> listReachabilityScopesAsync(final AddressSelection selection) {
+        return supplyAsync(new AsyncCallable<List<String>>() {
+            @Override
+            public List<String> call() throws LndException {
+                return listReachabilityScopes(selection);
+            }
+        });
     }
 
     /**
@@ -462,6 +593,18 @@ public final class Client {
     }
 
     /**
+     * Run `resolveAnnounceAddrs()` on the shared async executor.
+     */
+    public CompletableFuture<List<String>> resolveAnnounceAddrsAsync(final AnnounceSpec spec) {
+        return supplyAsync(new AsyncCallable<List<String>>() {
+            @Override
+            public List<String> call() throws LndException {
+                return resolveAnnounceAddrs(spec);
+            }
+        });
+    }
+
+    /**
      * 解析最终 reachability scopes 列表.
      *
      * @param spec 注册规格
@@ -477,8 +620,20 @@ public final class Client {
         return dedupeSorted(scopes);
     }
 
+    /**
+     * Run `resolveReachabilityScopes()` on the shared async executor.
+     */
+    public CompletableFuture<List<String>> resolveReachabilityScopesAsync(final AnnounceSpec spec) {
+        return supplyAsync(new AsyncCallable<List<String>>() {
+            @Override
+            public List<String> call() throws LndException {
+                return resolveReachabilityScopes(spec);
+            }
+        });
+    }
+
     private DiscoverResponse discoverResponse(DiscoveryFilter filter) throws LndException {
-        String body = request("GET", "/v1/nodes", queryMap(filter, null), null, null);
+        String body = request("GET", "/v1/nodes", queryMap(filter, null), null, null, false, null);
         Map<String, Object> object = Json.asObject(Json.parse(body), "discover response");
         List<Object> nodesValue = Json.asArray(object.get("nodes"), "discover response nodes");
         List<DiscoveredNode> nodes = new ArrayList<DiscoveredNode>(nodesValue.size());
@@ -496,7 +651,7 @@ public final class Client {
                 if (attempt > 0) {
                     sleepWithStop(handle, backoffDelayMillis(attempt));
                 }
-                announceOnce(spec);
+                announceOnce(spec, handle);
                 attempt = 0;
                 long renewInterval = Math.max(1L, spec.getTtlSecs() / 3L) * 1_000L;
                 sleepWithStop(handle, withJitterMillis(renewInterval));
@@ -539,8 +694,10 @@ public final class Client {
         Long cursor
     ) throws LndException {
         HttpURLConnection connection = null;
+        SseReader reader = null;
         try {
-            connection = openConnection("GET", "/v1/watch", queryMap(filter, cursor), null, "text/event-stream", true);
+            connection = openConnection("GET", "/v1/watch", queryMap(filter, cursor), "text/event-stream", true);
+            handle.bindConnection(connection);
             int status = connection.getResponseCode();
             if (status == 409) {
                 listener.onEvent(new DiscoveryEventEnvelope(cursor, DiscoveryEvent.reset()));
@@ -551,10 +708,16 @@ public final class Client {
             if (status < 200 || status >= 300) {
                 throw apiError(connection);
             }
-            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
+            reader = new SseReader(connection.getInputStream());
+            handle.bindReader(reader);
             Long latestCursor = cursor;
             while (!handle.isStopRequested()) {
-                String payload = readSsePayload(reader);
+                String payload;
+                try {
+                    payload = reader.readPayload();
+                } catch (SocketTimeoutException timeout) {
+                    continue;
+                }
                 if (payload == null) {
                     throw new LndException("watch stream closed");
                 }
@@ -579,6 +742,9 @@ public final class Client {
             }
             throw new LndException("watch failed", error);
         } finally {
+            handle.clearReader(reader);
+            closeQuietly(reader);
+            handle.clearConnection(connection);
             if (connection != null) {
                 connection.disconnect();
             }
@@ -645,7 +811,6 @@ public final class Client {
         String method,
         String path,
         Map<String, List<String>> query,
-        String requestBody,
         String accept,
         boolean longLived
     ) throws LndException {
@@ -655,7 +820,7 @@ public final class Client {
             connection.setRequestMethod(method);
             connection.setConnectTimeout(timeoutMillis);
             if (longLived) {
-                connection.setReadTimeout(0);
+                connection.setReadTimeout(DEFAULT_WATCH_READ_POLL_MILLIS);
             } else {
                 connection.setReadTimeout(timeoutMillis);
             }
@@ -665,18 +830,6 @@ public final class Client {
             }
             if (bearerToken != null && bearerToken.length() > 0) {
                 connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
-            }
-            if (requestBody != null) {
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "application/json");
-                byte[] bytes = requestBody.getBytes(StandardCharsets.UTF_8);
-                connection.setFixedLengthStreamingMode(bytes.length);
-                OutputStream output = connection.getOutputStream();
-                try {
-                    output.write(bytes);
-                } finally {
-                    output.close();
-                }
             }
             return connection;
         } catch (IOException error) {
@@ -689,11 +842,17 @@ public final class Client {
         String path,
         Map<String, List<String>> query,
         String requestBody,
-        String accept
+        String accept,
+        boolean longLived,
+        AnnounceHandle handle
     ) throws LndException {
         HttpURLConnection connection = null;
         try {
-            connection = openConnection(method, path, query, requestBody, accept, false);
+            connection = openConnection(method, path, query, accept, longLived);
+            if (handle != null) {
+                handle.bindConnection(connection);
+            }
+            writeRequestBody(connection, requestBody);
             int status = connection.getResponseCode();
             String body = readResponseBody(connection, status);
             if (status < 200 || status >= 300) {
@@ -703,9 +862,28 @@ public final class Client {
         } catch (IOException error) {
             throw new LndException("http request failed", error);
         } finally {
+            if (handle != null) {
+                handle.clearConnection(connection);
+            }
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    private static void writeRequestBody(HttpURLConnection connection, String requestBody) throws IOException {
+        if (requestBody == null) {
+            return;
+        }
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type", "application/json");
+        byte[] bytes = requestBody.getBytes(StandardCharsets.UTF_8);
+        connection.setFixedLengthStreamingMode(bytes.length);
+        OutputStream output = connection.getOutputStream();
+        try {
+            output.write(bytes);
+        } finally {
+            output.close();
         }
     }
 
@@ -766,26 +944,25 @@ public final class Client {
         }
     }
 
-    private static String readSsePayload(BufferedReader reader) throws IOException {
-        StringBuilder payload = new StringBuilder();
-        while (true) {
-            String line = reader.readLine();
-            if (line == null) {
-                return payload.length() == 0 ? null : payload.toString();
-            }
-            if (line.length() == 0) {
-                return payload.toString();
-            }
-            if (line.startsWith(":")) {
-                continue;
-            }
-            if (line.startsWith("data:")) {
-                String value = line.substring(5).trim();
-                if (payload.length() > 0) {
-                    payload.append('\n');
-                }
-                payload.append(value);
-            }
+    private static void closeQuietly(InputStream stream) {
+        if (stream == null) {
+            return;
+        }
+        try {
+            stream.close();
+        } catch (IOException ignored) {
+            // ignore close failure during stop
+        }
+    }
+
+    private static void closeQuietly(Closeable reader) {
+        if (reader == null) {
+            return;
+        }
+        try {
+            reader.close();
+        } catch (IOException ignored) {
+            // ignore close failure during stop
         }
     }
 
@@ -1113,6 +1290,89 @@ public final class Client {
             if (!handle.isStopRequested()) {
                 throw new LndException("watch loop interrupted", error);
             }
+        }
+    }
+
+    private static <T> CompletableFuture<T> supplyAsync(final AsyncCallable<T> callable) {
+        final CompletableFuture<T> future = new CompletableFuture<T>();
+        ASYNC_EXECUTOR.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    future.complete(callable.call());
+                } catch (Throwable error) {
+                    future.completeExceptionally(error);
+                }
+            }
+        });
+        return future;
+    }
+
+    private interface AsyncCallable<T> {
+        T call() throws Exception;
+    }
+
+    private static final class SseReader implements Closeable {
+        private final InputStreamReader reader;
+        private final StringBuilder payload = new StringBuilder();
+        private final StringBuilder line = new StringBuilder();
+
+        private SseReader(InputStream stream) {
+            this.reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
+        }
+
+        private String readPayload() throws IOException {
+            while (true) {
+                int ch = reader.read();
+                if (ch < 0) {
+                    return finishEofPayload();
+                }
+                if (ch == '\r') {
+                    continue;
+                }
+                if (ch == '\n') {
+                    if (line.length() == 0) {
+                        String value = payload.toString();
+                        payload.setLength(0);
+                        return value;
+                    }
+                    appendLine(line.toString());
+                    line.setLength(0);
+                    continue;
+                }
+                line.append((char) ch);
+            }
+        }
+
+        private String finishEofPayload() {
+            if (line.length() > 0) {
+                appendLine(line.toString());
+                line.setLength(0);
+            }
+            if (payload.length() == 0) {
+                return null;
+            }
+            String value = payload.toString();
+            payload.setLength(0);
+            return value;
+        }
+
+        private void appendLine(String currentLine) {
+            if (currentLine.startsWith(":")) {
+                return;
+            }
+            if (currentLine.startsWith("data:")) {
+                String value = currentLine.substring(5).trim();
+                if (payload.length() > 0) {
+                    payload.append('\n');
+                }
+                payload.append(value);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            reader.close();
         }
     }
 

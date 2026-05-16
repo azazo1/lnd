@@ -724,12 +724,19 @@ Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 
 以及这些能力:
 
 - `listReachabilityScopes()`
+- `listReachabilityScopesAsync()`
 - `discover()`
+- `discoverAsync()`
 - `discoverWithAutoScopeOverlap()`
+- `discoverWithAutoScopeOverlapAsync()`
 - `announceOnce()`
+- `announceOnceAsync()`
 - `announce()`
+- `announceAsync()`
 - `watch()`
+- `watchAsync()`
 - `watchWithAutoScopeOverlap()`
+- `watchWithAutoScopeOverlapAsync()`
 
 最小接入方式:
 
@@ -737,6 +744,8 @@ Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 
 Client client = new Client("http://127.0.0.1:8765", "dev-token");
 DiscoveryFilter filter = new DiscoveryFilter().withDiscoveryDomain("office-a");
 ```
+
+Java SDK 同时保留同步有限请求和 `CompletableFuture` 异步版本. `watch()` 与 `announce()` 仍然返回 handle, 但 `close()` 会主动关闭底层连接, 空闲长连接也能更快停止.
 
 示例见 [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java), SDK 源码见 [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java).
 

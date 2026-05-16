@@ -38,11 +38,17 @@ Java SDK 现在覆盖:
 - `resolveAnnounceAddrs()`
 - `resolveReachabilityScopes()`
 - `discover()`
+- `discoverAsync()`
 - `discoverWithAutoScopeOverlap()`
+- `discoverWithAutoScopeOverlapAsync()`
 - `announceOnce()`
+- `announceOnceAsync()`
 - `announce()`
+- `announceAsync()`
 - `watch()`
+- `watchAsync()`
 - `watchWithAutoScopeOverlap()`
+- `watchWithAutoScopeOverlapAsync()`
 
 协议语义与 Rust / Go 保持一致:
 
@@ -55,6 +61,13 @@ Java SDK 现在覆盖:
 - `reset` 后自动补快照
 
 `setTimeoutMillis()` 只影响 `discover()` 和 `announceOnce()` 这类有限请求. `watch()` 是长连接, 不会因为这个总读超时在空闲期被主动切断.
+
+Java SDK 现在同时提供两种调用风格:
+
+- 有限请求保留同步 API, 也提供基于 `CompletableFuture` 的 async 版本
+- 长生命周期的 `announce()` 和 `watch()` 继续返回 handle, 便于显式停止和等待退出
+
+其中 `WatchHandle.close()` 和 `AnnounceHandle.close()` 会主动断开当前底层 HTTP 连接, 不再只依赖线程中断, 所以在空闲 SSE 或阻塞请求期间也能更快收拢后台线程.
 
 ## 构建
 
@@ -78,6 +91,7 @@ import io.github.azazo1.lnd.Client;
 import io.github.azazo1.lnd.DiscoveryFilter;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 public final class Main {
     public static void main(String[] args) throws Exception {
@@ -93,7 +107,8 @@ public final class Main {
             filter.addReachabilityScope(scope);
         }
 
-        System.out.println(client.discover(filter));
+        CompletableFuture<List<io.github.azazo1.lnd.DiscoveredNode>> future = client.discoverAsync(filter);
+        System.out.println(future.get());
     }
 }
 ```

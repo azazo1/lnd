@@ -1,8 +1,10 @@
 package io.github.azazo1.lnd;
 
+import java.net.HttpURLConnection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 后台 announce 循环句柄.
@@ -24,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class AnnounceHandle implements AutoCloseable {
     private final AtomicBoolean stopRequested = new AtomicBoolean(false);
     private final CountDownLatch stopped = new CountDownLatch(1);
+    private final AtomicReference<HttpURLConnection> activeConnection = new AtomicReference<HttpURLConnection>(null);
     private volatile LndException lastError;
     private volatile Thread thread;
 
@@ -36,6 +39,20 @@ public final class AnnounceHandle implements AutoCloseable {
 
     void fail(LndException error) {
         this.lastError = error;
+    }
+
+    void bindConnection(HttpURLConnection connection) {
+        activeConnection.set(connection);
+        if (isStopRequested() && connection != null) {
+            connection.disconnect();
+            activeConnection.compareAndSet(connection, null);
+        }
+    }
+
+    void clearConnection(HttpURLConnection connection) {
+        if (connection != null) {
+            activeConnection.compareAndSet(connection, null);
+        }
     }
 
     void finish() {
@@ -59,6 +76,10 @@ public final class AnnounceHandle implements AutoCloseable {
     @Override
     public void close() {
         stopRequested.set(true);
+        HttpURLConnection connection = activeConnection.getAndSet(null);
+        if (connection != null) {
+            connection.disconnect();
+        }
         Thread current = thread;
         if (current != null) {
             current.interrupt();
