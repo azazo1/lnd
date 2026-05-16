@@ -210,6 +210,15 @@ cargo run --bin lnd-server -- --config config.toml.example
 - `LND_SSE_KEEPALIVE_SECS`
 - `LND_EVENT_BUFFER_CAPACITY`
 
+client 侧传入的 `server_url` 或 `base URL` 应该指向服务根路径或反代前缀根路径, 不要手工追加 `/v1`.
+
+例如:
+
+- 直连 server: `http://127.0.0.1:8765`
+- 反代到子路径: `https://example.com/lnd`
+
+client 会自行拼接 `/v1/nodes`, `/v1/watch` 等协议路径. 如果把 `server_url` 写成 `https://example.com/lnd/v1`, 最终请求会变成 `/lnd/v1/v1/...`.
+
 示例配置:
 
 ```toml
@@ -254,6 +263,7 @@ cargo run --bin lnd-client -- \
 常用参数:
 
 - `--server-url`: client 连接的 server base URL
+- `--server-url` 不要带 `/v1`, 例如反代前缀应写成 `https://example.com/lnd`, 而不是 `https://example.com/lnd/v1`
 - `--bearer-token`: 预共享 Bearer token
 - `--node-id`: 显式指定持久 node id
 - `--node-id-path`: CLI 自己使用的状态文件路径, 用于读取或生成 node id
