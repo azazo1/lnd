@@ -296,9 +296,10 @@ type backoffConfig struct {
 // ClientOption customizes a Client created by NewClient.
 type ClientOption func(*Client)
 
-// WithTimeout sets the HTTP request timeout.
+// WithTimeout sets the finite HTTP request timeout.
 //
 // Use this when list or announce requests may traverse slower proxies or links.
+// Long lived watch streams are not capped by this total timeout.
 func WithTimeout(timeout time.Duration) ClientOption {
 	return func(c *Client) {
 		c.http.Timeout = timeout
@@ -335,6 +336,7 @@ type Client struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	watchHTTP *http.Client
 	backoff backoffConfig
 	address AddressSelection
 }
@@ -353,6 +355,7 @@ func NewClient(baseURL, bearerToken string, opts ...ClientOption) *Client {
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		watchHTTP: &http.Client{},
 		backoff: backoffConfig{
 			min: 500 * time.Millisecond,
 			max: 15 * time.Second,
@@ -570,7 +573,7 @@ func (c *Client) watchOnce(
 	}
 	request.Header.Set("Accept", "text/event-stream")
 	c.applyAuth(request)
-	response, err := c.http.Do(request)
+	response, err := c.watchHTTP.Do(request)
 	if err != nil {
 		return err
 	}

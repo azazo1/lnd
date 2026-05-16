@@ -54,6 +54,8 @@ Java SDK 现在覆盖:
 - `cursor` 恢复
 - `reset` 后自动补快照
 
+`setTimeoutMillis()` 只影响 `discover()` 和 `announceOnce()` 这类有限请求. `watch()` 是长连接, 不会因为这个总读超时在空闲期被主动切断.
+
 ## 构建
 
 如果你有 Gradle 环境, 可以直接在这个目录构建:

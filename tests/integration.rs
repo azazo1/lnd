@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use common::{TestServer, sample_spec};
 use futures::StreamExt;
+use lnd::client::ClientConfig;
 use lnd::protocol::{DiscoveryEvent, DiscoveryFilter};
+use lnd::LndClient;
 
 fn sample_filter() -> DiscoveryFilter {
     DiscoveryFilter {
@@ -137,4 +139,54 @@ async fn server_shutdown_completes_with_active_watch_stream() {
     .unwrap()
     .unwrap();
     shutdown_result.unwrap();
+}
+
+#[tokio::test]
+async fn watch_survives_idle_period_longer_than_request_timeout() {
+    let server = TestServer::spawn().await.unwrap();
+    let client = LndClient::new(ClientConfig {
+        server_url: format!("http://{}", server.addr),
+        bearer_token: server.bearer_token.clone(),
+        timeout: Duration::from_secs(1),
+        ..ClientConfig::default()
+    })
+    .unwrap();
+
+    client
+        .announce_once(
+            sample_spec("node-idle-watch", 30)
+                .into_announcement(vec!["192.168.1.10:8080".parse().unwrap()]),
+        )
+        .await
+        .unwrap();
+
+    let mut stream = client.watch(sample_filter());
+    let first = tokio::time::timeout(Duration::from_secs(5), stream.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(first.event, DiscoveryEvent::Snapshot { .. }));
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    client
+        .announce_once(
+            sample_spec("node-idle-watch-2", 30)
+                .into_announcement(vec!["192.168.1.11:8080".parse().unwrap()]),
+        )
+        .await
+        .unwrap();
+
+    loop {
+        let next = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if let DiscoveryEvent::Upsert { node } = next.event {
+            assert_eq!(node.node_id, "node-idle-watch-2");
+            break;
+        }
+    }
 }

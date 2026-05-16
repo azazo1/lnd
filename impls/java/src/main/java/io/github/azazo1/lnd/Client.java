@@ -149,7 +149,7 @@ public final class Client {
     }
 
     /**
-     * 返回当前 HTTP 超时.
+     * 返回当前有限 HTTP 请求超时.
      *
      * @return 超时毫秒数
      */
@@ -158,7 +158,14 @@ public final class Client {
     }
 
     /**
-     * 设置 HTTP 超时.
+     * 设置有限 HTTP 请求超时.
+     *
+     * <p>注意:
+     *
+     * <ul>
+     *   <li>该超时用于 `discover` 和 `announce` 这类有限请求
+     *   <li>`watch` 是长连接, 不受这个总读超时限制
+     * </ul>
      *
      * @param timeoutMillis 超时毫秒数
      * @return 当前对象, 便于链式调用
@@ -533,7 +540,7 @@ public final class Client {
     ) throws LndException {
         HttpURLConnection connection = null;
         try {
-            connection = openConnection("GET", "/v1/watch", queryMap(filter, cursor), null, "text/event-stream");
+            connection = openConnection("GET", "/v1/watch", queryMap(filter, cursor), null, "text/event-stream", true);
             int status = connection.getResponseCode();
             if (status == 409) {
                 listener.onEvent(new DiscoveryEventEnvelope(cursor, DiscoveryEvent.reset()));
@@ -639,15 +646,16 @@ public final class Client {
         String path,
         Map<String, List<String>> query,
         String requestBody,
-        String accept
+        String accept,
+        boolean longLived
     ) throws LndException {
         try {
             URL url = URI.create(buildUrl(path, query)).toURL();
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod(method);
             connection.setConnectTimeout(timeoutMillis);
-            if ("text/event-stream".equals(accept)) {
-                connection.setReadTimeout(Math.max(timeoutMillis, 45_000));
+            if (longLived) {
+                connection.setReadTimeout(0);
             } else {
                 connection.setReadTimeout(timeoutMillis);
             }
@@ -685,7 +693,7 @@ public final class Client {
     ) throws LndException {
         HttpURLConnection connection = null;
         try {
-            connection = openConnection(method, path, query, requestBody, accept);
+            connection = openConnection(method, path, query, requestBody, accept, false);
             int status = connection.getResponseCode();
             String body = readResponseBody(connection, status);
             if (status < 200 || status >= 300) {

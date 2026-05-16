@@ -74,6 +74,7 @@ impl Default for ClientConfig {
 #[derive(Clone)]
 pub struct LndClient {
     http: HttpClient,
+    watch_http: HttpClient,
     config: ClientConfig,
 }
 
@@ -154,11 +155,19 @@ impl LndClient {
                     .map_err(|_| ClientError::InvalidConfig("invalid bearer token".to_string()))?,
             );
         }
+        let watch_headers = headers.clone();
         let http = HttpClient::builder()
             .default_headers(headers)
             .timeout(config.timeout)
             .build()?;
-        Ok(Self { http, config })
+        let watch_http = HttpClient::builder()
+            .default_headers(watch_headers)
+            .build()?;
+        Ok(Self {
+            http,
+            watch_http,
+            config,
+        })
     }
 
     /// 执行一次性节点查询.
@@ -221,7 +230,7 @@ impl LndClient {
             let mut cursor: Option<u64> = None;
             let mut attempt: u32 = 0;
             loop {
-                let mut request = client.http.get(
+                let mut request = client.watch_http.get(
                     format!("{}/v1/watch", client.base_url())
                 );
                 if let Some(discovery_domain) = filter.discovery_domain.as_deref() {
@@ -483,7 +492,11 @@ impl ClientBuilder {
         self
     }
 
-    /// 设置 HTTP 请求超时.
+    /// 设置普通 HTTP 请求超时.
+    ///
+    /// 注意事项:
+    /// - 该超时用于 `list` 和 `announce` 这类有限请求.
+    /// - `watch` 为长连接, 不受该总超时限制.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.config.timeout = timeout;
         self
