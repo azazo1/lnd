@@ -2,9 +2,9 @@
 
 `lnd` 是一个基于 HTTP(S) 中心注册表的局域网发现库与应用. 它不依赖组播广播, 而是让节点主动向中心 server 注册租约, 再由 server 负责查询和实时事件分发. 目标是提供比 mDNS 更稳定, 更可控, 也更容易跨子网和容器环境部署的发现能力.
 
-仓库同时产出三类内容:
+仓库同时产出四类内容:
 
-- Rust library: `rlib`
+- Rust library: `lnd-core` (`rlib`)
 - C ABI 动态库: `liblnd`
 - 客户端二进制: `lnd-client`
 - 服务端二进制: `lnd-server`
@@ -148,7 +148,7 @@ cargo build --release
 cargo build -p lnd-c-native --release
 ```
 
-如果本机安装了 [`just`](https://github.com/casey/just), 也可以直接使用仓库根目录的 [justfile](/Users/azazo1/pjs/rust/lnd/justfile) 快速执行常用命令, 例如:
+如果本机安装了 [`just`](https://github.com/casey/just), 也可以直接使用仓库根目录的 [justfile](https://github.com/azazo1/lnd/blob/main/justfile) 快速执行常用命令, 例如:
 
 ```bash
 just server
@@ -174,6 +174,16 @@ just python-wheel
 - Linux: `liblnd.so`
 - macOS: `liblnd.dylib`
 - Windows: `lnd.dll`
+
+### 从 crates.io 安装
+
+发布后可以直接安装 `lnd-core` 提供的 Rust library 和命令行工具:
+
+```shell
+cargo install lnd-core --version 0.1.0 --locked
+```
+
+库文档位于 [docs.rs/lnd-core](https://docs.rs/lnd-core).
 
 ## 命令行工具
 
@@ -330,7 +340,7 @@ cargo run --bin lnd-client -- \
 
 ```toml
 [dependencies]
-lnd = { path = "../lnd" }
+lnd = { package = "lnd-core", version = "0.1.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"
 ```
@@ -489,8 +499,8 @@ v1 的跨语言底座仍然是 C ABI, 但它不是推荐给业务项目直接使
 - 请求和响应可以走 JSON
 - 同时也提供 setter 风格 API, 让高层绑定可以映射出接近 Rust 原生的对象接口
 
-头文件位于 [include/lnd.h](/Users/azazo1/pjs/rust/lnd/include/lnd.h). 它更适合作为绑定层的实现基础, 而不是应用层直接写业务时的 API.
-对应的动态库构建入口位于 [bindings/c/native](/Users/azazo1/pjs/rust/lnd/bindings/c/native).
+头文件位于 [include/lnd.h](https://github.com/azazo1/lnd/blob/main/include/lnd.h). 它更适合作为绑定层的实现基础, 而不是应用层直接写业务时的 API.
+对应的动态库构建入口位于 [bindings/c/native](https://github.com/azazo1/lnd/tree/main/bindings/c/native).
 
 ### 核心对象
 
@@ -603,7 +613,7 @@ int main(void) {
 }
 ```
 
-示例源码见 [bindings/c/discover_watch.c](/Users/azazo1/pjs/rust/lnd/bindings/c/discover_watch.c).
+示例源码见 [bindings/c/discover_watch.c](https://github.com/azazo1/lnd/blob/main/bindings/c/discover_watch.c).
 
 ## 其他语言接入
 
@@ -622,7 +632,7 @@ int main(void) {
 
 ### Python
 
-Python wheel 项目入口位于 [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python), 其中 Rust 原生扩展子 crate 位于 [bindings/python/native](/Users/azazo1/pjs/rust/lnd/bindings/python/native).
+Python wheel 项目入口位于 [bindings/python](https://github.com/azazo1/lnd/tree/main/bindings/python), 其中 Rust 原生扩展子 crate 位于 [bindings/python/native](https://github.com/azazo1/lnd/tree/main/bindings/python/native).
 
 可以构建 wheel:
 
@@ -639,7 +649,7 @@ pip install target/wheels/lnd_sdk-0.1.0-*.whl
 
 设计上分成两层:
 
-- 主 crate `lnd` 保持纯 Rust, 不引入 `pyo3`
+- 主 crate `lnd-core` 保持纯 Rust, 不引入 `pyo3`
 - `bindings/python/native` 是 workspace 子 crate, 负责 `maturin + pyo3` 原生扩展
 
 运行时直接使用 wheel 内置的 `lnd._native`.
@@ -663,11 +673,11 @@ with Client("http://127.0.0.1:8765", "dev-token") as client:
     print(nodes)
 ```
 
-示例见 [examples/sdk/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/sdk/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](/Users/azazo1/pjs/rust/lnd/bindings/python/lnd/client.py), Rust 扩展入口见 [bindings/python/native/src/lib.rs](/Users/azazo1/pjs/rust/lnd/bindings/python/native/src/lib.rs).
+示例见 [examples/sdk/python/discover.py](https://github.com/azazo1/lnd/blob/main/examples/sdk/python/discover.py), 绑定源码见 [bindings/python/lnd/client.py](https://github.com/azazo1/lnd/blob/main/bindings/python/lnd/client.py), Rust 扩展入口见 [bindings/python/native/src/lib.rs](https://github.com/azazo1/lnd/blob/main/bindings/python/native/src/lib.rs).
 
 ### Go
 
-Go 这边不再建议走 `cgo + lnd.h`. 仓库内提供的是纯 Go SDK, 位于 [impls/go](/Users/azazo1/pjs/rust/lnd/impls/go), 直接实现 `lnd` 的 HTTP(S) + REST + SSE 协议.
+Go 这边不再建议走 `cgo + lnd.h`. 仓库内提供的是纯 Go SDK, 位于 [impls/go](https://github.com/azazo1/lnd/tree/main/impls/go), 直接实现 `lnd` 的 HTTP(S) + REST + SSE 协议.
 
 这意味着如果仓库地址和版本 tag 可见, 外部项目可以直接:
 
@@ -700,11 +710,11 @@ nodes, err := client.Discover(
 )
 ```
 
-示例见 [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go), SDK 源码见 [impls/go/client.go](/Users/azazo1/pjs/rust/lnd/impls/go/client.go).
+示例见 [examples/sdk/go/main.go](https://github.com/azazo1/lnd/blob/main/examples/sdk/go/main.go), SDK 源码见 [impls/go/client.go](https://github.com/azazo1/lnd/blob/main/impls/go/client.go).
 
 ### Java
 
-Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java).
+Java 和 Android 这边当前推荐直接使用纯 Java 协议重实现, 位于 [impls/java](https://github.com/azazo1/lnd/tree/main/impls/java).
 
 这样做的原因是:
 
@@ -747,7 +757,7 @@ DiscoveryFilter filter = new DiscoveryFilter().withDiscoveryDomain("office-a");
 
 Java SDK 同时保留同步有限请求和 `CompletableFuture` 异步版本. `watch()` 与 `announce()` 仍然返回 handle, 但 `close()` 会主动关闭底层连接, 空闲长连接也能更快停止.
 
-示例见 [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java), SDK 源码见 [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java).
+示例见 [examples/sdk/java/Main.java](https://github.com/azazo1/lnd/blob/main/examples/sdk/java/Main.java), SDK 源码见 [impls/java](https://github.com/azazo1/lnd/tree/main/impls/java).
 
 如果只问 "Rust 能不能直接用于 Android", 答案是可以, 但当前仓库还没有这些内容:
 
@@ -765,25 +775,25 @@ Java SDK 同时保留同步有限请求和 `CompletableFuture` 异步版本. `wa
 
 Rust 示例:
 
-- [examples/embedded_server.rs](/Users/azazo1/pjs/rust/lnd/examples/embedded_server.rs): 嵌入式 Axum server
-- [examples/announce_once.rs](/Users/azazo1/pjs/rust/lnd/examples/announce_once.rs): 一次性注册
-- [examples/watch.rs](/Users/azazo1/pjs/rust/lnd/examples/watch.rs): 持续监听事件
+- [examples/embedded_server.rs](https://github.com/azazo1/lnd/blob/main/examples/embedded_server.rs): 嵌入式 Axum server
+- [examples/announce_once.rs](https://github.com/azazo1/lnd/blob/main/examples/announce_once.rs): 一次性注册
+- [examples/watch.rs](https://github.com/azazo1/lnd/blob/main/examples/watch.rs): 持续监听事件
 
 SDK 示例:
 
-- [examples/sdk/go/main.go](/Users/azazo1/pjs/rust/lnd/examples/sdk/go/main.go)
-- [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java)
-- [examples/sdk/python/discover.py](/Users/azazo1/pjs/rust/lnd/examples/sdk/python/discover.py)
+- [examples/sdk/go/main.go](https://github.com/azazo1/lnd/blob/main/examples/sdk/go/main.go)
+- [examples/sdk/java/Main.java](https://github.com/azazo1/lnd/blob/main/examples/sdk/java/Main.java)
+- [examples/sdk/python/discover.py](https://github.com/azazo1/lnd/blob/main/examples/sdk/python/discover.py)
 
 C ABI 示例:
 
-- [bindings/c/discover_watch.c](/Users/azazo1/pjs/rust/lnd/bindings/c/discover_watch.c)
+- [bindings/c/discover_watch.c](https://github.com/azazo1/lnd/blob/main/bindings/c/discover_watch.c)
 
 Bindings:
 
-- [bindings/python](/Users/azazo1/pjs/rust/lnd/bindings/python)
-- [impls/go](/Users/azazo1/pjs/rust/lnd/impls/go)
-- [impls/java](/Users/azazo1/pjs/rust/lnd/impls/java)
+- [bindings/python](https://github.com/azazo1/lnd/tree/main/bindings/python)
+- [impls/go](https://github.com/azazo1/lnd/tree/main/impls/go)
+- [impls/java](https://github.com/azazo1/lnd/tree/main/impls/java)
 
 ## 设计取舍
 
@@ -811,10 +821,10 @@ Bindings:
 ## 测试
 
 ```bash
-cargo test
-cargo clippy --all-targets --all-features
+cargo test --workspace
+cargo clippy --workspace --all-targets
 ```
 
 ## 许可证
 
-本项目使用 [MIT License](/Users/azazo1/pjs/rust/lnd/LICENSE).
+本项目使用 [MIT License](https://github.com/azazo1/lnd/blob/main/LICENSE).

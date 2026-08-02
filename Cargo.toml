@@ -1,8 +1,29 @@
 [package]
-name = "lnd"
+name = "lnd-core"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT"
+description = "HTTP(S)-based local network service discovery client and server"
+readme = "README.md"
+repository = "https://github.com/azazo1/lnd"
+homepage = "https://github.com/azazo1/lnd"
+documentation = "https://docs.rs/lnd-core"
+keywords = ["discovery", "lan", "service-discovery", "sse", "http"]
+categories = ["network-programming", "web-programming"]
+exclude = [
+    "AGENTS.md",
+    ".gitignore",
+    "bindings/**",
+    "impls/**",
+    "include/**",
+    "examples/sdk/**",
+    "cbindgen.toml",
+    "justfile",
+]
+
+[lib]
+name = "lnd"
 
 [workspace]
 resolver = "3"

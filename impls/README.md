@@ -8,8 +8,8 @@
 - 便于该语言的包管理和分发
 - 避免为每种语言都引入 `JNI`, `cgo` 或 `FFI` 装配层
 
-当前新增的 `Java` SDK 位于 [java](/Users/azazo1/pjs/rust/lnd/impls/java).
-当前 `Go` SDK 位于 [go](/Users/azazo1/pjs/rust/lnd/impls/go).
+当前新增的 `Java` SDK 位于 [java](https://github.com/azazo1/lnd/tree/main/impls/java).
+当前 `Go` SDK 位于 [go](https://github.com/azazo1/lnd/tree/main/impls/go).
 
 说明:
 

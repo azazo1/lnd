@@ -113,7 +113,7 @@ public final class Main {
 }
 ```
 
-完整示例见 [examples/sdk/java/Main.java](/Users/azazo1/pjs/rust/lnd/examples/sdk/java/Main.java).
+完整示例见 [examples/sdk/java/Main.java](https://github.com/azazo1/lnd/blob/main/examples/sdk/java/Main.java).
 
 ## Android 接入建议
 
@@ -140,4 +140,4 @@ public final class Main {
 
 ## 许可证
 
-Java SDK 跟随仓库根目录的 [MIT License](/Users/azazo1/pjs/rust/lnd/LICENSE).
+Java SDK 跟随仓库根目录的 [MIT License](https://github.com/azazo1/lnd/blob/main/LICENSE).

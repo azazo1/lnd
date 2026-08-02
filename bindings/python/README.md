@@ -61,4 +61,4 @@ with Client("http://127.0.0.1:8765", "dev-token") as client:
 
 ## 许可证
 
-Python SDK 跟随仓库根目录的 [MIT License](/Users/azazo1/pjs/rust/lnd/LICENSE).
+Python SDK 跟随仓库根目录的 [MIT License](https://github.com/azazo1/lnd/blob/main/LICENSE).
