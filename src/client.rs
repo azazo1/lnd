@@ -7,7 +7,6 @@ use anyhow::Context;
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt};
 use if_addrs::{IfAddr, get_if_addrs};
-use rand::Rng;
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -819,7 +818,7 @@ fn backoff_delay(min: Duration, max: Duration, attempt: u32) -> Duration {
     let max_ms = max.as_millis() as u64;
     let exp = 2u64.saturating_pow(attempt.min(10));
     let delay = base_ms.saturating_mul(exp).min(max_ms.max(base_ms));
-    let jitter = rand::rng().random_range(0..=base_ms.max(1));
+    let jitter = rand::random_range(0..=base_ms.max(1));
     Duration::from_millis(delay.saturating_add(jitter).min(max_ms.max(base_ms)))
 }
 
@@ -828,7 +827,7 @@ fn with_jitter(duration: Duration) -> Duration {
     if millis == 0 {
         return Duration::from_secs(DEFAULT_TTL_SECS.min(1));
     }
-    let jitter = rand::rng().random_range(0..=(millis / 5).max(1));
+    let jitter = rand::random_range(0..=(millis / 5).max(1));
     Duration::from_millis(millis.saturating_add(jitter))
 }
 

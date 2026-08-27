@@ -72,11 +72,11 @@ fn build_client(
     LndClient::new(config).map_err(|error| PyRuntimeError::new_err(error.to_string()))
 }
 
-fn json_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<PyObject> {
+fn json_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyAny>> {
     let module = py.import("json")?;
     let text = serde_json::to_string(&value)
         .map_err(|error| PyRuntimeError::new_err(format!("failed to encode json: {error}")))?;
-    Ok(module.call_method1("loads", (text,))?.into())
+    Ok(module.call_method1("loads", (text,))?.unbind())
 }
 
 #[pyclass]
@@ -122,7 +122,7 @@ fn list_reachability_scopes_json(
     _timeout_ms: u64,
     _reconnect_backoff_ms: (u64, u64),
     address_defaults_json: String,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let scopes = list_reachability_scopes(&parse_defaults(&address_defaults_json)?)
         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
     json_to_py(
@@ -141,7 +141,7 @@ fn discover_json(
     timeout_ms: u64,
     reconnect_backoff_ms: (u64, u64),
     address_defaults_json: String,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let client = build_client(
         server_url,
         bearer_token,
@@ -170,7 +170,7 @@ fn resolve_announce_addrs_json(
     _timeout_ms: u64,
     _reconnect_backoff_ms: (u64, u64),
     address_defaults_json: String,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let spec: lnd::AnnounceSpec = parse_announce_json(&spec_json)
         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
     let addrs =
@@ -193,7 +193,7 @@ fn announce_once_json(
     timeout_ms: u64,
     reconnect_backoff_ms: (u64, u64),
     address_defaults_json: String,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let client = build_client(
         server_url,
         bearer_token,
@@ -254,7 +254,7 @@ fn watch_start(
     server_url: String,
     bearer_token: String,
     filter_json: String,
-    callback: PyObject,
+    callback: Py<PyAny>,
     timeout_ms: u64,
     reconnect_backoff_ms: (u64, u64),
     address_defaults_json: String,
@@ -268,7 +268,7 @@ fn watch_start(
     )?;
     let filter: lnd::DiscoveryFilter = parse_filter_json(&filter_json)
         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-    let callback = callback.bind(py).clone().unbind();
+    let callback = callback.clone_ref(py);
     let (stop_tx, mut stop_rx) = oneshot::channel();
     let join_handle = std::thread::spawn(move || {
         let runtime = match runtime() {
@@ -287,7 +287,7 @@ fn watch_start(
                                     Ok(value) => value,
                                     Err(_) => break,
                                 };
-                                Python::with_gil(|py| {
+                                Python::attach(|py| {
                                     let _ = json_to_py(py, value)
                                         .and_then(|payload| callback.call1(py, (payload,)).map(|_| ()));
                                 });
