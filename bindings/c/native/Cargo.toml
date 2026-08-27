@@ -8,16 +8,16 @@ name = "lnd"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-futures = "0.3.31"
+futures = "0.3.34"
 lnd_core = { package = "lnd-core", path = "../../.." }
-serde_json = "1.0.140"
-tokio = { version = "1.45.0", features = ["rt-multi-thread", "sync"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync"] }
 
 [build-dependencies]
-cbindgen = "0.29.0"
+cbindgen = "0.29.4"
 
 [dev-dependencies]
-anyhow = "1.0.100"
-reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls"] }
-tokio = { version = "1.45.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+anyhow = "1.0.104"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 lnd_core = { package = "lnd-core", path = "../../.." }
