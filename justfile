@@ -20,7 +20,7 @@ alias br := build-release
 alias l := clippy
 alias t := test
 
-# Show available recipes.
+[private]
 default:
     @just --list
 

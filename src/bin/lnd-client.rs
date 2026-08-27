@@ -8,7 +8,7 @@ use lnd::protocol::{AnnounceSpec, DiscoveryFilter};
 use lnd::tracing_utils::init_tracing;
 
 #[derive(Debug, Parser)]
-#[command(name = "lnd-client")]
+#[command(name = "lnd-client", version)]
 struct Cli {
     #[arg(long, env = "LND_SERVER_URL")]
     server_url: String,

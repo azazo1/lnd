@@ -1,5 +1,6 @@
 /target
 /vendor/
+.tmp/
 
 # Python
 **/__pycache__/

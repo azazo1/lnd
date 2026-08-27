@@ -5,7 +5,7 @@ use lnd::server::{InMemoryRegistry, ServerConfig, run_server};
 use lnd::tracing_utils::init_tracing;
 
 #[derive(Debug, Parser)]
-#[command(name = "lnd-server")]
+#[command(name = "lnd-server", version)]
 struct Args {
     #[arg(long)]
     config: Option<PathBuf>,

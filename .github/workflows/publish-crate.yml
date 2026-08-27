@@ -1,0 +1,91 @@
+name: Publish crate
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布到 crates.io 的已有 tag"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - name: 解析发布 tag
+        id: release_tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CURRENT_REF: ${{ github.ref }}
+          CURRENT_REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" && "$CURRENT_REF" == refs/tags/* ]]; then
+            tag_name="$CURRENT_REF_NAME"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && -n "$DISPATCH_TAG" ]]; then
+            git check-ref-format "refs/tags/$DISPATCH_TAG"
+            tag_name="$DISPATCH_TAG"
+          else
+            echo "缺少发布 tag" >&2
+            exit 1
+          fi
+
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "source_ref=refs/tags/$tag_name" >> "$GITHUB_OUTPUT"
+
+      - name: 检出发布 tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release_tag.outputs.source_ref }}
+          fetch-depth: 0
+
+      - name: 重新获取 annotated tag object
+        env:
+          TAG_NAME: ${{ steps.release_tag.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$TAG_NAME"
+          git fetch --force origin \
+            "refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 校验包版本
+        id: crate_version
+        env:
+          TAG_NAME: ${{ steps.release_tag.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(
+            cargo metadata --locked --no-deps --format-version 1 |
+              jq -er '.packages[] | select(.name == "lnd-core") | .version'
+          )"
+          expected_tag="v$package_version"
+
+          if [[ "$TAG_NAME" != "$expected_tag" ]]; then
+            echo "tag $TAG_NAME 与包版本 $package_version 不一致" >&2
+            exit 1
+          fi
+
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+
+      - name: 发布 lnd-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked -p lnd-core

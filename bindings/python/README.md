@@ -38,7 +38,7 @@ maturin build --release
 ## 安装
 
 ```bash
-pip install target/wheels/lnd_sdk-0.1.0-*.whl
+pip install target/wheels/lnd_sdk-0.1.1-*.whl
 ```
 
 ## 运行时行为
