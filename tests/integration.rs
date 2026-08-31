@@ -48,6 +48,22 @@ async fn announce_loop_keeps_node_alive_until_stopped() {
 }
 
 #[tokio::test]
+async fn dropping_announce_handle_stops_renewal() {
+    let server = TestServer::spawn().await.unwrap();
+    let client = server.client();
+
+    let handle = client.announce_loop(sample_spec("node-drop", 2)).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let nodes = client.list(sample_filter()).await.unwrap();
+    assert!(nodes.iter().any(|node| node.node_id == "node-drop"));
+
+    drop(handle);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let nodes = client.list(sample_filter()).await.unwrap();
+    assert!(nodes.iter().all(|node| node.node_id != "node-drop"));
+}
+
+#[tokio::test]
 async fn expired_node_is_removed() {
     let server = TestServer::spawn().await.unwrap();
     let client = server.client();

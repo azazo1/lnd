@@ -370,6 +370,7 @@ async fn main() -> anyhow::Result<()> {
     .insert_metadata("version", "1.0.0")
     .include_loopback(true);
 
+    // Keep the handle alive. Dropping it stops the renew loop.
     let _announce = client.announce_loop(spec)?;
 
     let nodes = client
@@ -400,6 +401,7 @@ Rust 侧主要公开类型:
 - `ClientConfig`
 - `ClientBuilder`
 - `LndClient`
+- `AnnounceHandle`
 - `AnnounceSpec`
 - `AddressSelection`
 - `DiscoveryFilter`

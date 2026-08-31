@@ -81,10 +81,15 @@ pub struct LndClient {
 ///
 /// 功能简介:
 /// - 由 [`LndClient::announce_loop`] 返回.
-/// - 通过 [`AnnounceHandle::stop`] 停止后台续租任务.
+/// - 通过 [`AnnounceHandle::stop`] 停止后台续租任务并等待退出.
+/// - `Drop` 时也会停止后台任务, 避免句柄丢失后空转占用 CPU.
+///
+/// 注意事项:
+/// - `stop` 发送停止信号后等待任务自行退出.
+/// - `Drop` 会中止任务, 不保证当前 HTTP 请求做完.
 pub struct AnnounceHandle {
-    shutdown: watch::Sender<bool>,
-    task: JoinHandle<Result<(), ClientError>>,
+    shutdown: Option<watch::Sender<bool>>,
+    task: Option<JoinHandle<Result<(), ClientError>>>,
 }
 
 /// Rust client 错误类型.
@@ -328,6 +333,7 @@ impl LndClient {
     /// - 该循环会先解析地址, 再调用一次注册.
     /// - 成功注册后按 `ttl_secs / 3` 加抖动续租.
     /// - 失败时会使用指数退避重试.
+    /// - 收到停止信号, 或 shutdown sender 断开后必须退出, 不能继续空转.
     pub fn announce_loop(&self, spec: AnnounceSpec) -> Result<AnnounceHandle, ClientError> {
         let client = self.clone();
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
@@ -335,48 +341,50 @@ impl LndClient {
             let renew_interval = Duration::from_secs((spec.ttl_secs / 3).max(1));
             let mut attempt = 0u32;
             loop {
-                tokio::select! {
-                    _ = shutdown_rx.changed() => {
-                        if *shutdown_rx.borrow() {
+                let delay = if attempt == 0 {
+                    Duration::from_secs(0)
+                } else {
+                    backoff_delay(
+                        client.config.reconnect_backoff_min,
+                        client.config.reconnect_backoff_max,
+                        attempt,
+                    )
+                };
+                if wait_shutdown_or_sleep(&mut shutdown_rx, delay).await {
+                    info!(node_id = %spec.node_id, "announce loop stopping");
+                    return Ok(());
+                }
+
+                let lan_addrs = client.resolve_announce_addrs(&spec)?;
+                let reachability_scopes = client.resolve_reachability_scopes(&spec)?;
+                let mut announcement = spec.clone().into_announcement(lan_addrs);
+                announcement.reachability_scopes = reachability_scopes;
+                match client.announce_once(announcement).await {
+                    Ok(_) => {
+                        debug!(node_id = %spec.node_id, "lease renewed");
+                        attempt = 0;
+                        if wait_shutdown_or_sleep(&mut shutdown_rx, with_jitter(renew_interval))
+                            .await
+                        {
                             info!(node_id = %spec.node_id, "announce loop stopping");
                             return Ok(());
                         }
                     }
-                    _ = tokio::time::sleep(if attempt == 0 { Duration::from_secs(0) } else { backoff_delay(
-                        client.config.reconnect_backoff_min,
-                        client.config.reconnect_backoff_max,
-                        attempt,
-                    )}) => {
-                        let lan_addrs = client.resolve_announce_addrs(&spec)?;
-                        let reachability_scopes = client.resolve_reachability_scopes(&spec)?;
-                        let mut announcement = spec.clone().into_announcement(lan_addrs);
-                        announcement.reachability_scopes = reachability_scopes;
-                        match client.announce_once(announcement).await {
-                            Ok(_) => {
-                                debug!(node_id = %spec.node_id, "lease renewed");
-                                attempt = 0;
-                                tokio::select! {
-                                    _ = shutdown_rx.changed() => {
-                                        if *shutdown_rx.borrow() {
-                                            info!(node_id = %spec.node_id, "announce loop stopping");
-                                            return Ok(());
-                                        }
-                                    }
-                                    _ = tokio::time::sleep(with_jitter(renew_interval)) => {}
-                                }
-                            }
-                            Err(error) => {
-                                attempt = attempt.saturating_add(1);
-                                warn!(node_id = %spec.node_id, error = %error, attempt, "announce failed, retrying");
-                            }
-                        }
+                    Err(error) => {
+                        attempt = attempt.saturating_add(1);
+                        warn!(
+                            node_id = %spec.node_id,
+                            error = %error,
+                            attempt,
+                            "announce failed, retrying"
+                        );
                     }
                 }
             }
         });
         Ok(AnnounceHandle {
-            shutdown: shutdown_tx,
-            task,
+            shutdown: Some(shutdown_tx),
+            task: Some(task),
         })
     }
 
@@ -564,11 +572,33 @@ impl AnnounceHandle {
     ///
     /// 异常:
     /// - 返回 [`ClientError::Api`] 当后台任务 join 失败.
-    pub async fn stop(self) -> Result<(), ClientError> {
-        let _ = self.shutdown.send(true);
-        self.task
-            .await
-            .map_err(|error| ClientError::Api(format!("announce task join error: {error}")))?
+    pub async fn stop(mut self) -> Result<(), ClientError> {
+        self.signal_stop();
+        let Some(task) = self.task.take() else {
+            return Ok(());
+        };
+        match task.await {
+            Ok(result) => result,
+            Err(error) if error.is_cancelled() => Ok(()),
+            Err(error) => Err(ClientError::Api(format!(
+                "announce task join error: {error}"
+            ))),
+        }
+    }
+
+    fn signal_stop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(true);
+        }
+    }
+}
+
+impl Drop for AnnounceHandle {
+    fn drop(&mut self) {
+        self.signal_stop();
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 
@@ -822,6 +852,20 @@ fn backoff_delay(min: Duration, max: Duration, attempt: u32) -> Duration {
     Duration::from_millis(delay.saturating_add(jitter).min(max_ms.max(base_ms)))
 }
 
+async fn wait_shutdown_or_sleep(
+    shutdown_rx: &mut watch::Receiver<bool>,
+    delay: Duration,
+) -> bool {
+    if *shutdown_rx.borrow() {
+        return true;
+    }
+    tokio::select! {
+        biased;
+        result = shutdown_rx.changed() => result.is_err() || *shutdown_rx.borrow(),
+        _ = tokio::time::sleep(delay) => false,
+    }
+}
+
 fn with_jitter(duration: Duration) -> Duration {
     let millis = duration.as_millis() as u64;
     if millis == 0 {
@@ -988,5 +1032,38 @@ mod tests {
         let scopes =
             resolve_reachability_scopes_with_defaults(&spec, &AddressSelection::default()).unwrap();
         assert_eq!(scopes, vec!["10.0.0.0/24".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn wait_shutdown_or_sleep_stops_when_sender_is_dropped() {
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        drop(shutdown_tx);
+        let stopped = tokio::time::timeout(
+            Duration::from_millis(50),
+            wait_shutdown_or_sleep(&mut shutdown_rx, Duration::from_secs(30)),
+        )
+        .await
+        .expect("sender drop should not busy-wait");
+        assert!(stopped);
+    }
+
+    #[tokio::test]
+    async fn wait_shutdown_or_sleep_stops_when_flag_is_set() {
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        shutdown_tx.send(true).unwrap();
+        let stopped = tokio::time::timeout(
+            Duration::from_millis(50),
+            wait_shutdown_or_sleep(&mut shutdown_rx, Duration::from_secs(30)),
+        )
+        .await
+        .expect("stop flag should not wait for sleep");
+        assert!(stopped);
+    }
+
+    #[tokio::test]
+    async fn wait_shutdown_or_sleep_waits_when_still_running() {
+        let (_shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let stopped = wait_shutdown_or_sleep(&mut shutdown_rx, Duration::from_millis(20)).await;
+        assert!(!stopped);
     }
 }
