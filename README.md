@@ -180,7 +180,7 @@ just python-wheel
 发布后可以直接安装 `lnd-core` 提供的 Rust library 和命令行工具:
 
 ```shell
-cargo install lnd-core --version 0.1.1 --locked
+cargo install lnd-core --version 0.1.2 --locked
 ```
 
 库文档位于 [docs.rs/lnd-core](https://docs.rs/lnd-core).
@@ -340,7 +340,7 @@ cargo run --bin lnd-client -- \
 
 ```toml
 [dependencies]
-lnd = { package = "lnd-core", version = "0.1.1" }
+lnd = { package = "lnd-core", version = "0.1.2" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"
 ```
@@ -646,7 +646,7 @@ maturin build --release
 生成的 wheel 是包含原生扩展的包, 例如:
 
 ```bash
-pip install target/wheels/lnd_sdk-0.1.1-*.whl
+pip install target/wheels/lnd_sdk-0.1.2-*.whl
 ```
 
 设计上分成两层:
