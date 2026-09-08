@@ -31,7 +31,7 @@ pub mod server;
 pub mod tracing_utils;
 
 pub use client::{
-    AnnounceHandle, ClientBuilder, ClientConfig, LndClient, ReachabilityScope,
+    AnnounceHandle, ClientBuilder, ClientConfig, HttpExecutor, LndClient, ReachabilityScope,
     discover_nodes_to_json, list_reachability_scopes, parse_announce_json, parse_filter_json,
     resolve_announce_addrs_with_defaults, resolve_reachability_scopes_with_defaults,
     watch_event_to_json,

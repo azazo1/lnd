@@ -68,6 +68,8 @@ fn build_client(
         reconnect_backoff_min: std::time::Duration::from_millis(reconnect_backoff_ms.0),
         reconnect_backoff_max: std::time::Duration::from_millis(reconnect_backoff_ms.1),
         default_address_selection: parse_defaults(address_defaults_json)?,
+        http_executor: None,
+        watch_http_executor: None,
     };
     LndClient::new(config).map_err(|error| PyRuntimeError::new_err(error.to_string()))
 }

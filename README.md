@@ -401,6 +401,7 @@ Rust 侧主要公开类型:
 - `ClientConfig`
 - `ClientBuilder`
 - `LndClient`
+- `HttpExecutor`
 - `AnnounceHandle`
 - `AnnounceSpec`
 - `AddressSelection`
@@ -449,6 +450,52 @@ Rust library 侧的 `node_id` 生成, 持久化, 以及 `display_name` 默认值
 - `client.list_reachability_scopes()`
 - `client.resolve_reachability_scopes(&spec)`
 - `resolve_reachability_scopes_with_defaults(&spec, &selection)`
+
+#### 自定义底层 HTTP 层
+
+在 LND 嵌入到其他项目时, 可以把底层请求交给外部构建的执行器, 例如统一做流量统计:
+
+```rust
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use lnd::client::{ClientError, HttpExecutor};
+
+#[derive(Clone)]
+struct TrafficCounter {
+    inner: reqwest::Client,
+    request_count: std::sync::Arc<AtomicU64>,
+}
+
+impl HttpExecutor for TrafficCounter {
+    fn execute(
+        &self,
+        request: reqwest::Request,
+    ) -> Pin<Box<dyn Future<Output = Result<reqwest::Response, ClientError>> + Send>> {
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+        let inner = self.inner.clone();
+        Box::pin(async move { inner.execute(request).await.map_err(ClientError::from) })
+    }
+}
+
+let counter = std::sync::Arc::new(AtomicU64::new(0));
+let executor = TrafficCounter { inner: reqwest::Client::new(), request_count: counter.clone() };
+let client = LndClient::builder("http://127.0.0.1:8765")
+    .bearer_token("dev-token")
+    .http_executor(std::sync::Arc::new(executor))
+    .watch_http_executor(std::sync::Arc::new(TrafficCounter {
+        inner: reqwest::Client::new(),
+        request_count: counter.clone(),
+    }))
+    .build()?;
+```
+
+普通请求和 `watch` 长连接使用相互独立的执行器:
+
+- `http_client` / `watch_http_client`: 直接传入外部构建的 `reqwest::Client`, 此时超时等传输层行为由外部 client 控制.
+- `http_executor` / `watch_http_executor`: 传入自定义 `HttpExecutor` 实现, 请求进入执行器时 Authorization 头已注入.
+- `ClientConfig` 上对应的 `http_executor` / `watch_http_executor` 字段也可以直接赋值.
 
 ### 作为嵌入式 server 使用
 

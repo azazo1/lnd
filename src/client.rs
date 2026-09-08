@@ -1,14 +1,16 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt};
 use if_addrs::{IfAddr, get_if_addrs};
-use reqwest::header::{ACCEPT, AUTHORIZATION};
-use reqwest::{Client as HttpClient, StatusCode};
+use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue};
+use reqwest::{Client as HttpClient, Request, RequestBuilder, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::watch;
@@ -47,7 +49,9 @@ pub struct ReachabilityScope {
 /// 注意事项:
 /// - `default_address_selection` 只影响自动地址解析的默认值.
 /// - 单个 [`AnnounceSpec`] 上的地址选择参数可以覆盖该默认值.
-#[derive(Debug, Clone)]
+/// - `http_executor` 和 `watch_http_executor` 用于注入外部 HTTP 执行器,
+///   例如在外部项目中包装请求做流量监控, 未设置时由内部按配置构建 reqwest client.
+#[derive(Clone)]
 pub struct ClientConfig {
     pub server_url: String,
     pub bearer_token: String,
@@ -55,6 +59,8 @@ pub struct ClientConfig {
     pub reconnect_backoff_min: Duration,
     pub reconnect_backoff_max: Duration,
     pub default_address_selection: AddressSelection,
+    pub http_executor: Option<Arc<dyn HttpExecutor>>,
+    pub watch_http_executor: Option<Arc<dyn HttpExecutor>>,
 }
 
 impl Default for ClientConfig {
@@ -66,14 +72,71 @@ impl Default for ClientConfig {
             reconnect_backoff_min: Duration::from_millis(500),
             reconnect_backoff_max: Duration::from_secs(15),
             default_address_selection: AddressSelection::default(),
+            http_executor: None,
+            watch_http_executor: None,
         }
+    }
+}
+
+impl std::fmt::Debug for ClientConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientConfig")
+            .field("server_url", &self.server_url)
+            .field("bearer_token", &self.bearer_token)
+            .field("timeout", &self.timeout)
+            .field("reconnect_backoff_min", &self.reconnect_backoff_min)
+            .field("reconnect_backoff_max", &self.reconnect_backoff_max)
+            .field("default_address_selection", &self.default_address_selection)
+            .field(
+                "http_executor",
+                &self.http_executor.as_ref().map(|_| "custom"),
+            )
+            .field(
+                "watch_http_executor",
+                &self.watch_http_executor.as_ref().map(|_| "custom"),
+            )
+            .finish()
+    }
+}
+
+/// 底层 HTTP 请求执行器抽象.
+///
+/// 功能简介:
+/// - 接收一个已构造完成的 [`Request`], 返回 [`Response`].
+/// - 标准实现基于 [`HttpClient`], 外部类型可实现该 trait 来包装或替换底层 HTTP 行为.
+///
+/// 使用场景:
+/// - 在其他项目中接入带流量统计, 指标采集或链路追踪的 HTTP 中间件.
+/// - 让 LND client 复用宿主程序统一管理的连接池, 代理或 TLS 配置.
+///
+/// 注意事项:
+/// - Authorization 头在请求传入前已由 [`LndClient`] 注入, 执行器无需重复处理.
+/// - 推荐在外部通过 `Arc` 共享同一个执行器实例, 以便普通请求和 `watch` 共用统计状态.
+pub trait HttpExecutor: Send + Sync + 'static {
+    /// 执行一个已构造完成的请求.
+    fn execute(
+        &self,
+        request: Request,
+    ) -> Pin<Box<dyn Future<Output = Result<Response, ClientError>> + Send>>;
+}
+
+impl HttpExecutor for HttpClient {
+    fn execute(
+        &self,
+        request: Request,
+    ) -> Pin<Box<dyn Future<Output = Result<Response, ClientError>> + Send>> {
+        let client = self.clone();
+        Box::pin(async move { client.execute(request).await.map_err(ClientError::from) })
     }
 }
 
 #[derive(Clone)]
 pub struct LndClient {
-    http: HttpClient,
-    watch_http: HttpClient,
+    /// 仅用于构造请求的模板 client, 实际发送由对应执行器完成.
+    request_template: HttpClient,
+    http: Arc<dyn HttpExecutor>,
+    watch_http: Arc<dyn HttpExecutor>,
+    auth_header: Option<HeaderValue>,
     config: ClientConfig,
 }
 
@@ -140,38 +203,63 @@ impl LndClient {
     /// 从完整配置创建 client.
     ///
     /// 参数:
-    /// - `config`: 包含 base URL, 鉴权, 超时和默认地址选择的配置.
+    /// - `config`: 包含 base URL, 鉴权, 超时, 默认地址选择和可选外部执行器的配置.
     ///
     /// 返回值:
     /// - 成功时返回可复用的 [`LndClient`].
     ///
     /// 异常:
     /// - 返回 [`ClientError::InvalidConfig`] 当 Bearer token 无法转为合法 header.
-    /// - 返回 [`ClientError::Http`] 当底层 HTTP client 构建失败.
+    /// - 返回 [`ClientError::Http`] 当内部默认 HTTP client 构建失败.
     pub fn new(config: ClientConfig) -> Result<Self, ClientError> {
-        let mut headers = reqwest::header::HeaderMap::new();
-        if !config.bearer_token.is_empty() {
+        let auth_header = if config.bearer_token.is_empty() {
+            None
+        } else {
             let value = format!("Bearer {}", config.bearer_token);
-            headers.insert(
-                AUTHORIZATION,
-                value
-                    .parse()
-                    .map_err(|_| ClientError::InvalidConfig("invalid bearer token".to_string()))?,
-            );
-        }
-        let watch_headers = headers.clone();
-        let http = HttpClient::builder()
-            .default_headers(headers)
-            .timeout(config.timeout)
-            .build()?;
-        let watch_http = HttpClient::builder()
-            .default_headers(watch_headers)
-            .build()?;
+            Some(
+                value.parse::<HeaderValue>().map_err(|_| {
+                    ClientError::InvalidConfig("invalid bearer token".to_string())
+                })?,
+            )
+        };
+        let http: Arc<dyn HttpExecutor> = match config.http_executor.clone() {
+            Some(executor) => executor,
+            None => Arc::new(HttpClient::builder().timeout(config.timeout).build()?),
+        };
+        let watch_http: Arc<dyn HttpExecutor> = match config.watch_http_executor.clone() {
+            Some(executor) => executor,
+            None => Arc::new(HttpClient::builder().build()?),
+        };
         Ok(Self {
+            request_template: HttpClient::builder().build()?,
             http,
             watch_http,
+            auth_header,
             config,
         })
+    }
+
+    /// 为请求注入鉴权头.
+    fn authorize(&self, request: &mut Request) {
+        if let Some(value) = &self.auth_header {
+            request
+                .headers_mut()
+                .insert(AUTHORIZATION, value.clone());
+        }
+    }
+
+    /// 构建请求, 注入鉴权头后交给普通请求执行器发送.
+    async fn send(&self, builder: RequestBuilder) -> Result<Response, ClientError> {
+        let mut request = builder.build()?;
+        self.authorize(&mut request);
+        self.http.execute(request).await
+    }
+
+    /// 构建请求, 注入鉴权头后交给 watch 长连接执行器发送.
+    async fn send_watch(&self, builder: RequestBuilder) -> Result<Response, ClientError> {
+        let mut request = builder.build()?;
+        self.authorize(&mut request);
+        self.watch_http.execute(request).await
     }
 
     /// 执行一次性节点查询.
@@ -199,7 +287,7 @@ impl LndClient {
         &self,
         filter: DiscoveryFilter,
     ) -> Result<DiscoverResponse, ClientError> {
-        let response = self.build_list_request(&filter).send().await?;
+        let response = self.send(self.build_list_request(&filter)).await?;
         parse_json_response::<DiscoverResponse>(response).await
     }
 
@@ -234,7 +322,7 @@ impl LndClient {
             let mut cursor: Option<u64> = None;
             let mut attempt: u32 = 0;
             loop {
-                let mut request = client.watch_http.get(
+                let mut request = client.request_template.get(
                     format!("{}/v1/watch", client.base_url())
                 );
                 if let Some(discovery_domain) = filter.discovery_domain.as_deref() {
@@ -262,7 +350,7 @@ impl LndClient {
                 );
                 request = request.header(ACCEPT, "text/event-stream");
 
-                match request.send().await {
+                match client.send_watch(request).await {
                     Ok(response) if response.status() == StatusCode::CONFLICT => {
                         yield DiscoveryEventEnvelope {
                             cursor: cursor.take(),
@@ -408,14 +496,15 @@ impl LndClient {
         announcement: NodeAnnouncement,
     ) -> Result<DiscoveredNode, ClientError> {
         let response = self
-            .http
-            .put(format!(
-                "{}/v1/nodes/{}",
-                self.base_url(),
-                urlencoding::encode(&announcement.node_id)
-            ))
-            .json(&announcement)
-            .send()
+            .send(
+                self.request_template
+                    .put(format!(
+                        "{}/v1/nodes/{}",
+                        self.base_url(),
+                        urlencoding::encode(&announcement.node_id)
+                    ))
+                    .json(&announcement),
+            )
             .await?;
         parse_json_response(response).await
     }
@@ -455,7 +544,7 @@ impl LndClient {
     }
 
     fn build_list_request(&self, filter: &DiscoveryFilter) -> reqwest::RequestBuilder {
-        let mut request = self.http.get(format!("{}/v1/nodes", self.base_url()));
+        let mut request = self.request_template.get(format!("{}/v1/nodes", self.base_url()));
         if let Some(discovery_domain) = filter.discovery_domain.as_deref() {
             request = request.query(&[("discovery_domain", discovery_domain)]);
         }
@@ -549,6 +638,83 @@ impl ClientBuilder {
     /// 用一份完整地址选择规则替换默认值.
     pub fn address_selection(mut self, address_selection: AddressSelection) -> Self {
         self.config.default_address_selection = address_selection;
+        self
+    }
+
+    /// 使用外部构建的 [`HttpClient`] 执行 `list` 和 `announce` 这类有限请求.
+    ///
+    /// 使用场景:
+    /// - 在其他项目中让 LND client 复用宿主程序统一配置的 reqwest client,
+    ///   例如代理, TLS, 连接池或自定义 DNS 解析.
+    ///
+    /// 返回值:
+    /// - 更新后的 [`ClientBuilder`].
+    ///
+    /// 注意事项:
+    /// - 请求超时等传输层行为由外部 client 自行控制, [`ClientConfig::timeout`] 不再生效.
+    /// - Authorization 头仍由 LND 按请求注入, 外部无需自行携带.
+    /// - `watch` 长连接不受影响, 需要一并替换时请配合 [`ClientBuilder::watch_http_client`].
+    ///
+    /// 使用示例:
+    /// ```rust
+    /// use lnd::LndClient;
+    ///
+    /// let http_client = reqwest::Client::builder().build()?;
+    /// let client = LndClient::builder("http://127.0.0.1:8765")
+    ///     .http_client(http_client)
+    ///     .build()?;
+    /// # Ok::<(), lnd::client::ClientError>(())
+    /// ```
+    pub fn http_client(mut self, http_client: HttpClient) -> Self {
+        self.config.http_executor = Some(Arc::new(http_client));
+        self
+    }
+
+    /// 使用外部构建的 [`HttpClient`] 执行 `watch` 长连接请求.
+    ///
+    /// 注意事项:
+    /// - 长连接不应设置总超时, 外部 client 需要自行保证这一点.
+    pub fn watch_http_client(mut self, watch_http_client: HttpClient) -> Self {
+        self.config.watch_http_executor = Some(Arc::new(watch_http_client));
+        self
+    }
+
+    /// 使用自定义执行器发送 `list` 和 `announce` 请求.
+    ///
+    /// 使用场景:
+    /// - 在外部包装 [`HttpExecutor`], 让每个请求经过宿主程序的流量统计,
+    ///   指标采集或链路追踪中间件后再发出.
+    ///
+    /// 返回值:
+    /// - 更新后的 [`ClientBuilder`].
+    ///
+    /// 注意事项:
+    /// - 执行器收到的是已构造完成的 [`reqwest::Request`], Authorization 头已注入.
+    /// - 普通请求和 `watch` 使用相互独立的执行器, 需要共用统计状态时,
+    ///   可以对同一个 `Arc<dyn HttpExecutor>` 分别克隆传入两者.
+    ///
+    /// 使用示例:
+    /// ```rust
+    /// use std::sync::Arc;
+    ///
+    /// use lnd::LndClient;
+    ///
+    /// # fn demo() -> Result<(), lnd::client::ClientError> {
+    /// // HttpClient 自带 HttpExecutor 实现, 自定义实现类型同样可以 Arc 包装后传入.
+    /// let client = LndClient::builder("http://127.0.0.1:8765")
+    ///     .http_executor(Arc::new(reqwest::Client::new()))
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn http_executor(mut self, executor: Arc<dyn HttpExecutor>) -> Self {
+        self.config.http_executor = Some(executor);
+        self
+    }
+
+    /// 使用自定义执行器发送 `watch` 长连接请求.
+    pub fn watch_http_executor(mut self, executor: Arc<dyn HttpExecutor>) -> Self {
+        self.config.watch_http_executor = Some(executor);
         self
     }
 
@@ -1065,5 +1231,99 @@ mod tests {
         let (_shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let stopped = wait_shutdown_or_sleep(&mut shutdown_rx, Duration::from_millis(20)).await;
         assert!(!stopped);
+    }
+
+    struct CountingExecutor {
+        inner: HttpClient,
+        request_count: std::sync::atomic::AtomicUsize,
+        last_authorization: std::sync::Mutex<Option<String>>,
+    }
+
+    impl CountingExecutor {
+        fn new() -> Self {
+            Self {
+                inner: HttpClient::builder().build().unwrap(),
+                request_count: std::sync::atomic::AtomicUsize::new(0),
+                last_authorization: std::sync::Mutex::new(None),
+            }
+        }
+    }
+
+    impl HttpExecutor for CountingExecutor {
+        fn execute(
+            &self,
+            request: Request,
+        ) -> Pin<Box<dyn Future<Output = Result<Response, ClientError>> + Send>> {
+            use std::sync::atomic::Ordering;
+            self.request_count.fetch_add(1, Ordering::SeqCst);
+            *self.last_authorization.lock().unwrap() = request
+                .headers()
+                .get(AUTHORIZATION)
+                .map(|value| value.to_str().unwrap_or_default().to_string());
+            let inner = self.inner.clone();
+            Box::pin(async move { inner.execute(request).await.map_err(ClientError::from) })
+        }
+    }
+
+    async fn spawn_embedded_server(bearer_token: &str) -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let config = crate::server::ServerConfig {
+            listen_addr: addr,
+            bearer_token: bearer_token.to_string(),
+            ..crate::server::ServerConfig::default()
+        };
+        let router = crate::server::build_router(config, crate::server::InMemoryRegistry::new(64));
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn custom_executor_is_used_and_receives_auth_header() {
+        let bearer_token = "executor-test-token";
+        let addr = spawn_embedded_server(bearer_token).await;
+        let executor = Arc::new(CountingExecutor::new());
+        let client = LndClient::builder(format!("http://{addr}"))
+            .bearer_token(bearer_token)
+            .http_executor(executor.clone())
+            .build()
+            .unwrap();
+
+        let nodes = client.list(DiscoveryFilter::new()).await.unwrap();
+        assert!(nodes.is_empty());
+        let spec = AnnounceSpec::new("node-executor", "svc", "node-executor", 8080)
+            .with_auto_lan_addrs(false)
+            .with_lan_addrs(["192.168.1.10:8080".parse().unwrap()])
+            .with_reachability_scopes(["192.168.1.0/24"]);
+        let lan_addrs = client.resolve_announce_addrs(&spec).unwrap();
+        client
+            .announce_once(spec.into_announcement(lan_addrs))
+            .await
+            .unwrap();
+
+        use std::sync::atomic::Ordering;
+        assert_eq!(executor.request_count.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            executor.last_authorization.lock().unwrap().as_deref(),
+            Some(format!("Bearer {bearer_token}").as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn external_http_client_receives_injected_auth() {
+        let bearer_token = "http-client-test-token";
+        let addr = spawn_embedded_server(bearer_token).await;
+        let http_client = HttpClient::builder().build().unwrap();
+        let client = LndClient::builder(format!("http://{addr}"))
+            .bearer_token(bearer_token)
+            .http_client(http_client)
+            .build()
+            .unwrap();
+
+        // server 要求鉴权, 若按请求注入失效, 这里会返回 401 相关错误.
+        let nodes = client.list(DiscoveryFilter::new()).await.unwrap();
+        assert!(nodes.is_empty());
     }
 }
