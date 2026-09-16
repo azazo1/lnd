@@ -47,7 +47,7 @@ jobs:
           echo "source_ref=refs/tags/$tag_name" >> "$GITHUB_OUTPUT"
 
       - name: 检出发布 tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.release_tag.outputs.source_ref }}
           fetch-depth: 0
